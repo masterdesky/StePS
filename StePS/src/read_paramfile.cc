@@ -60,11 +60,11 @@ void BCAST_global_parameters()
 #ifdef USE_SINGLE_PRECISION
 	MPI_Bcast(&L,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_FLOAT,0,MPI_COMM_WORLD);
-	MPI_Bcast(&ParticleRadi,1,MPI_FLOAT,0,MPI_COMM_WORLD);
+	MPI_Bcast(&particle_radii,1,MPI_FLOAT,0,MPI_COMM_WORLD);
 #else
 	MPI_Bcast(&L,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 	MPI_Bcast(&ACC_PARAM,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
-	MPI_Bcast(&ParticleRadi,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
+	MPI_Bcast(&particle_radii,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
 #endif
 return;
 }
@@ -251,7 +251,7 @@ while(!feof(param_file))
 
 	if(strstr(c, str26) != NULL)
 	{
-		sscanf(c, "%*s\t%f", &ParticleRadi);
+		sscanf(c, "%*s\t%f", &particle_radii);
 	}
 	if(strstr(c, str31) != NULL)
 	{
@@ -422,7 +422,7 @@ while(!feof(param_file))
   }
 	if(strstr(c, str26) != NULL)
   {
-      sscanf(c, "%*s\t%lf", &ParticleRadi);
+      sscanf(c, "%*s\t%lf", &particle_radii);
   }
 	if(strstr(c, str31) != NULL)
 	{
@@ -505,7 +505,7 @@ if(COSMOLOGY == 1)
 else
 {
 	printf("Non-cosmological simulation.\n");
-	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%f\na_max\t\t\t\t%f\nParticleRadi\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,ParticleRadi,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
+	printf("The parameters of the simulation:\n---------------------------------\nBoundary condition\t\t%i\nBox size\t\t\t%f\na_max\t\t\t\t%f\nParticle Radii\t\t\t%f\nAccuracy parameter\t\t%f\nMinimal timestep length\t\t%f\nInitial conditions\t\t%s\nOutput directory\t\t%s\n",IS_PERIODIC,L,a_max,particle_radii,ACC_PARAM,h_min,IC_FILE,OUT_DIR);
 }
 printf("Wall-clock time limit\t\t%.2f h\n", TIME_LIMIT_IN_MINS/60.0);
 if(COSMOLOGY==1)

@@ -241,7 +241,7 @@ __global__ void ForceKernel_periodic(int n, int N, const REAL *xx, const REAL *x
 
 void recalculate_softening()
 {
-	beta = ParticleRadi;
+	beta = particle_radii;
 	if(COSMOLOGY ==1)
 	{
 		rho_part = M_min/(4.0*pi*pow(beta, 3.0) / 3.0);
