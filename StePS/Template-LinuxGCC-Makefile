@@ -24,7 +24,7 @@ USING_CUDA = NO
 
 #------------------------------- Options for boundary conditions (only uncomment one of them)
 #OPT += -DPERIODIC # Periodic boundary conditions
-#OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
+OPT += -DPERIODIC_Z # Periodic boundary conditions in the z-direction only
 
 #------------------------------- Option of HDF5
 OPT += -DHAVE_HDF5

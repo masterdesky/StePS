@@ -311,7 +311,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: Bad boundary conditions were set in the paramfile!\nThis executable is able to run semi-periodic simulations only.\nExiting.\n");
 			return (-2);
 		}
-			//TODO: Implement periodic boundary conditions in the z direction
+        //TODO: Implement periodic boundary conditions in the z direction
 
 	#else
 		if(IS_PERIODIC  != 0)
