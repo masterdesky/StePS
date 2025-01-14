@@ -34,9 +34,9 @@ OPT += -DHAVE_HDF5
 
 #------------------------------- Parametrization of the background cosmology
 OPT += -DCOSMOPARAM=0	#0: standard Lambda-CDM parametrization (default)
-			#1: wCDM dark energy parametrization
-			#2: w0waCDM (a.k.a. CPL) dark energy parametrization
-			#-1: the expansion history will be read from an external file
+						#1: wCDM dark energy parametrization
+						#2: w0waCDM (a.k.a. CPL) dark energy parametrization
+						#-1: the expansion history will be read from an external file
 
 #------------------------------- Compiler
 CXX = g++-10
