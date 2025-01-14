@@ -17,7 +17,11 @@ RUN apt-get update && apt-get install -y \
 # Create a non-root user for OpenMPI, as it does not like to run
 # applications as root. This is a very hacky workaround for the issue.
 # The code below creates a user with the same UID and GID as the
-# user running the Docker container and name it 'steps'.
+# user running the Docker container and name it 'steps'. While some
+# systems would allow the user to be created with the same UID and GID as
+# the host user, some systems would not. This is why an explicit deletion
+# of the user with the same UID is performed if it exists. This happens
+# ONLY INSIDE the Docker image, and does not affect the host system.
 RUN \
     # 1. Handle the group with our desired GID
     if getent group $GID > /dev/null 2>&1; then \
@@ -29,7 +33,7 @@ RUN \
         # If no group with our GID exists, create it
         groupadd --gid $GID steps; \
     fi && \
-    # 2, Handle the user
+    # 2, Handle the user with our desired UID
     if getent passwd steps > /dev/null 2>&1; then \
         # If user exists, update its UID and GID
         usermod -u $UID -g $GID steps; \
