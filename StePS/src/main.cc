@@ -312,10 +312,11 @@ int main(int argc, char *argv[])
     if(IS_PERIODIC<1 || IS_PERIODIC>3)
     {
         if(rank == 0)
+        {
             fprintf(stderr, "Error: Bad boundary condition were set in the paramfile!\nThis executable are able to deal with periodic simulation only.\nExiting.\n");
+        }
         return (-2);
     }
-
     if(IS_PERIODIC > 1)
     {
         if(IS_PERIODIC == 2)
@@ -325,7 +326,9 @@ int main(int argc, char *argv[])
         else
         {
             if(rank == 0)
+            {
                 printf("High precision Ewald force calculation is on.\n");
+            }
             el = ewald_space(5.8, e);
         }
     }
@@ -587,7 +590,7 @@ int main(int argc, char *argv[])
     MPI_Bcast(x,3*N,MPI_DOUBLE,0,MPI_COMM_WORLD);
     MPI_Bcast(M,N,MPI_DOUBLE,0,MPI_COMM_WORLD);
     #endif
-    #ifdef GLASS_MAKING
+    #if defined(GLASS_MAKING)
     //setting all velocities to zero
     int k;
     if(rank == 0)
@@ -611,12 +614,12 @@ int main(int argc, char *argv[])
 
         if(COMOVING_INTEGRATION == 1)
         {
-            mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
-            M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
+            //mass_in_unit_sphere = (REAL) (4.0*pi*rho_crit*Omega_m/3.0);
             #if defined(PERIODIC) || defined(PERIODIC_Z)
             if(IC_FORMAT == 1)
             {
                 #if defined(PERIODIC)
+                M_tmp = Omega_m*rho_crit*pow(L, 3.0)/((REAL) N); //Assuming DM only case
                 if(rank == 0)
                 {
                     printf("Every particle has the same mass in periodic cosmological simulations, if the input is in GADGET format.\nM=%.10f*10e+11M_sol\n", M_tmp);
@@ -626,9 +629,14 @@ int main(int argc, char *argv[])
                 {
                     M[i] = M_tmp;
                 }
-                #else
-                //Implement periodic boundary conditions in the z direction
-                
+                #elif defined(PERIODIC_Z)
+                if(rank == 0)
+                {
+                    std::cout << "Particle mass distribution is set during the IC generation! Continuing..." << std::endl;
+                }
+                //TODO: Implement sanity check for the particle masses
+                //      to make sure that the masses are consistent with
+                //      the cosmological parameters
                 #endif
             }
             //Calculating the total mean density of the simulation volume
@@ -1132,10 +1140,14 @@ int main(int argc, char *argv[])
                     if(T >= t_next)
                     {
                         if(OUTPUT_FORMAT == 0)
+                        {
                             write_ascii_snapshot(x, v);
+                        }
                         #ifdef HAVE_HDF5
                         if(OUTPUT_FORMAT == 2)
+                        {
                             write_hdf5_snapshot(x, v, M);
+                        }
                         #endif
                         out_z_index += delta_z_index;
                         t_next = out_list[out_z_index];

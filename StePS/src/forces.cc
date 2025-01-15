@@ -100,9 +100,12 @@ void forces(REAL* x, REAL* F, int ID_min, int ID_max) //Force calculation
                     Fx_tmp = wij*(dx);
                     Fy_tmp = wij*(dy);
                     Fz_tmp = wij*(dz);
-                    #pragma omp atomic { F[3*(i-ID_min)] += Fx_tmp; }
-                    #pragma omp atomic { F[3*(i-ID_min)+1] += Fy_tmp; }
-                    #pragma omp atomic { F[3*(i-ID_min)+2] += Fz_tmp; }
+                    #pragma omp atomic
+                        F[3*(i-ID_min)] += Fx_tmp;
+                    #pragma omp atomic
+                        F[3*(i-ID_min)+1] += Fy_tmp;
+                    #pragma omp atomic
+                        F[3*(i-ID_min)+2] += Fz_tmp;
                 }
                 //adding the external force from the outside of the simulation volume, if we run non-periodic comoving cosmological simulation
                 if(COSMOLOGY == 1 && COMOVING_INTEGRATION == 1)
