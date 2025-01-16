@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2024 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -16,89 +16,188 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+import os
 import sys
-from os.path import exists
 import time
 import yaml
 import numpy as np
+from subprocess import call
+from textwrap import dedent
+
 import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
+
+from pynverse import inversefunc
+
 from write_ICparamfile import *
 from inputoutput import *
 from powerspec import *
-from subprocess import call
-from pynverse import inversefunc
 
-_VERSION="v1.0.1.0"
-_YEAR="2018-2024"
+_VERSION = "v2.0"
+_YEAR = "2018-2025"
 
-#some basic function for the stereographic projection
-#Functions for the constant omega binning method
-def Calculate_rlimits_i(i, d_s, N_r_bin, last_cell_size):
+
+#Basic function for the stereographic projection
+def calculate_rlimits_i(i, d_s, N_r_bin, last_cell_size):
     r_i = d_s*np.tan((i)*np.pi/(2.0*(N_r_bin+last_cell_size)))
-    return r_i;
-def Calculate_r_i(i, d_s, N_r_bin, last_cell_size):
-    lower_limit = Calculate_rlimits_i(i, d_s, N_r_bin, last_cell_size)
-    upper_limit = Calculate_rlimits_i(i+1, d_s, N_r_bin, last_cell_size)
-    #simple assumption with "conical frustum"
-    r_i = 0.25*(upper_limit-lower_limit)*(lower_limit*lower_limit+2*lower_limit*upper_limit+3*upper_limit*upper_limit)/(lower_limit*lower_limit+lower_limit*upper_limit+upper_limit*upper_limit)+lower_limit
-    return r_i;
-
-#Functions for the constant volume binning method (constant volume in the compact space)
-def Calculate_rlimits_i_cvol(i, d_s, N_r_bin, R_sim):
+    return r_i
+def calculate_rlimits_i_cvol(i, d_s, N_r_bin, R_sim):
     '''
     Calculates the lower limit of the i-th bin for the constant volume binning in the
     non-compact space (constant volume in the compact space)
 
-    i = the ID of the boundary
-    d_s = the diameter of the 4D sphere
-    N_r_bin = Number of the radial bins
-    R_sim = the radius of the simulation volume in real space
+    Parameters:
+    -----------
+    i : int
+        The ID of the boundary
+    d_s : float
+        The diameter of the 4D sphere
+    N_r_bin : int
+        Number of the radial bins
+    R_sim : float
+        The radius of the simulation volume in real space
     '''
     omega_max = 2.0*np.arctan(R_sim/d_s)
     V_unit_bin = (2.0*omega_max-np.sin(2.0*omega_max))/N_r_bin
     V_unit_to_i = i*V_unit_bin
     #inverting numerically the x-sin(x) function
-    func = (lambda x: x-np.sin(x))
+    func = lambda x: x-np.sin(x)
     omega_i = inversefunc(func, y_values=V_unit_to_i)/2.0
     r_i = d_s*np.tan(omega_i/2)
-    return r_i;
-def Calculate_r_i_cvol(i, d_s, N_r_bin, R_sim):
-    lower_limit = Calculate_rlimits_i_cvol(i, d_s, N_r_bin, R_sim)
-    upper_limit = Calculate_rlimits_i_cvol(i+1, d_s, N_r_bin, R_sim)
-    #Calculating the center of the bin with "conical frustum"
-    r_i = 0.25*(upper_limit-lower_limit)*(lower_limit*lower_limit+2*lower_limit*upper_limit+3*upper_limit*upper_limit)/(lower_limit*lower_limit+lower_limit*upper_limit+upper_limit*upper_limit)+lower_limit
-    return r_i;
+    return r_i
+def calculate_r_i(r_func, i, d_s, N_r_bin, last_cell_size):
+    ll = r_func(i, d_s, N_r_bin, last_cell_size)    # lower limit
+    ul = r_func(i+1, d_s, N_r_bin, last_cell_size)  # upper limit
+    #simple assumption with "conical frustum"
+    r_i = 0.25 * (ul-ll) * (ll*ll + 2*ll*ul + 3*ul*ul) / (ll*ll + ll*ul + ul*ul) + ll
+    return r_i
 
-#Beginning of the script
+def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
+    '''
+    Perform the Zel'dovich approximation to compute particle positions and velocities.
+    
+    Parameters:
+    x (ndarray): Initial unperturbed particle positions (N, 3).
+    overdensity_field (ndarray): Target overdensity field (real field).
+    growth_rate (float): Time derivative of the growth factor D(t) in km/s/Mpc units.
+    
+    Returns:
+    positions (ndarray): Updated particle positions (N, 3).
+    velocities (ndarray): Particle velocities (N, 3).
+    '''
+    # Köbös rácson elmozdulásmező
+    # 3D rácspontok (ezek) között kiinterpolálom ezt a mezőt
+    # Interpoláció választása CIC
+    nres = overdensity_field.shape[0]
+    kk = np.fft.fftfreq(nres) * 2*np.pi/Lbox * nres
+    ks = np.fft.rfftfreq(nres) * 2*np.pi/Lbox * nres
+    kvec = np.array(np.meshgrid(kk,kk,ks))
+    kmod = np.sqrt(np.sum(kvec**2,axis=0))
+    delta_k = np.fft.rfftn(overdensity_field)
+    xpert = np.zeros(x.shape,dtype=np.float32)
+    v = np.zeros(x.shape,dtype=np.float32)
+    for i in range(3):
+        psi_i = np.zeros_like(kmod,dtype=complex)
+        mask = kmod > 0.0
+        psi_i[mask] = -1j*kvec[i,mask]/kmod[mask]**2 * delta_k[mask]
+        disp_field = np.fft.irfftn( psi_i )
+        max_disp = np.max(disp_field)
+        if i == 0:
+            print("Maximal \"x\" displacement:", max_disp*1000.0, "kpc/h; in units of mean particle separation:", max_disp*nres/Lbox)
+        elif i==1:
+            print("Maximal \"y\" displacement:", max_disp*1000.0, "kpc/h; in units of mean particle separation:", max_disp*nres/Lbox)
+        elif i==2:
+            print("Maximal \"z\" displacement:", max_disp*1000.0, "kpc/h; in units of mean particle separation:", max_disp*nres/Lbox)
+        xpert[i,...] = x[i,...] + disp_field
+        v[i,...] = disp_field*growth_rate
+    #Periodic wrapping
+    xpert = np.fmod(xpert+Lbox,Lbox)
+    #Converting the velocities from km/s/h to km/s.
+    v /= h 
+    return xpert,v
 
-print("+-----------------------------------------------------------------------------------------------+\n" \
-"|   _____ _       _____   _____    _____ _____               \t\t\t\t\t|\n" \
-"|  / ____| |     |  __ \ / ____|  |_   _/ ____|              \t\t\t\t\t|\n" \
-"| | (___ | |_ ___| |__) | (___      | || |       _ __  _   _ \t\t\t\t\t|\n" \
-"|  \___ \| __/ _ \  ___/ \___ \     | || |      | '_ \| | | |\t\t\t\t\t|\n" \
-"|  ____) | ||  __/ |     ____) |____| || |____ _| |_) | |_| |\t\t\t\t\t|\n" \
-"| |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |\t\t\t\t\t|\n" \
-"|                                               | |     __/ |\t\t\t\t\t|\n" \
-"|                                               |_|    |___/ \t\t\t\t\t|\n" \
-"|StePS_IC.py %s\t\t\t\t\t\t\t\t\t\t|\n| (an IC generator python script for STEreographically Projected cosmological Simulations)\t|\n+-----------------------------------------------------------------------------------------------+\n| Copyright (C) %s Gabor Racz\t\t\t\t\t\t\t\t|\n|\tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA\t|\n|\tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary  |\n|\tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA\t|\n+-----------------------------------------------------------------------------------------------+\n"%(_VERSION, _YEAR))
-print("+---------------------------------------------------------------+\n" \
-"| StePS_IC.py comes with ABSOLUTELY NO WARRANTY.                |\n" \
-"| This is free software, and you are welcome to redistribute it |\n" \
-"| under certain conditions. See the LICENSE file for details.   |\n" \
-"+---------------------------------------------------------------+\n\n")
-if len(sys.argv) != 2:
-    print("Error: missing yaml file!")
-    print("usage: ./StePS_IC.py <input yaml file>\nExiting.")
-    sys.exit(2)
-start = time.time()
+def header(N1:int = 97, N2:int = 66):
+    art = dedent(f'''
+    |      _____ _       _____   _____    _____ _____
+    |     / ____| |     |  __ \ / ____|  |_   _/ ____|
+    |    | (___ | |_ ___| |__) | (___      | || |       _ __  _   _
+    |     \___ \| __/ _ \  ___/ \___ \     | || |      | '_ \| | | |
+    |     ____) | ||  __/ |     ____) |____| || |____ _| |_) | |_| |
+    |    |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |
+    |                                                  | |     __/ |
+    |                                                  |_|    |___/
+    | StePS_IC.py {_VERSION}
+    |  (an IC generator python script for STEreographically Projected cosmological Simulations)
+    ''')
+    cop = dedent(f'''
+    | Copyright (C) 2017-2025 Gabor Racz
+    | \tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+    | \tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+    | \tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+    ''')
+    war = dedent(f'''
+    | StePS_IC.py comes with ABSOLUTELY NO WARRANTY.
+    | This is free software, and you are welcome to redistribute it
+    | under certain conditions. See the LICENSE file for details.
+    ''')
+    # Define horizontal borders
+    b  = lambda N: f'+{"-"*(N-2)}+'
+    # Converts multiline string to list of lines
+    ls = lambda s: s.strip().expandtabs(4).splitlines()
+    # Pad RHS of all lines with spaces to get them equally `N` chars wide
+    T  = lambda s, N: '\n'.join([f"{l}{' '*(N-1-len(l))}|" for l in ls(s)])
+
+    print(f'{b(N1)}\n{T(art, N1)}\n{b(N1)}\n{T(cop, N1)}\n{b(N1)}')
+    print(f'\n{b(N2)}\n{T(war, N2)}\n{b(N2)}')
+
+def generate_camb(Params):
+    '''
+    Setting the initial power spectrum with CAMB.
+    '''
+    print("Calculating input spectrum with CAMB...")
+    ombh2  = Params['OMEGAB'] * (Params['H0']/100.0)**2
+    omch2  = (Params['OMEGAM'] - Params['OMEGAB']) * (Params['H0']/100.0)**2
+    omk    = 1.0 - Params['OMEGAL'] - Params['OMEGAM']
+    kmin   = 1.0*np.pi/Params['LBOX']
+    kmax   = 100.0
+    npoints= 2048
+    kh, pk = get_CAMB_Linear_SPECTRUM(
+            H0=Params['H0'], ombh2=ombh2, omch2=omch2, omk=omk,
+            ns=Params['PRIMORDIALINDEX'], redshift=Params['REDSHIFT'],
+            kmin=kmin, kmax=kmax, npoints=npoints, sigma8=Params['SIGMA8'],
+            DE=Params['DARKENERGYMODEL'], DE_params=Params['DARKENERGYPARAMS'])
+    outarray = np.vstack((np.log10(kh), np.log10(pk*kh**3/(2*np.pi**2)))).T
+    np.savetxt(Params['FILEWITHINPUTSPECTRUM'], outarray)
+    Params['RENORMALIZEINPUTSPECTRUM'] = 0
+    print("...done")
+    return Params
+
+
+def main():
+    start = time.time()
+    header(N1=97, N2=66)
+    # Reading in input parameterfile in yaml format
+    if len(sys.argv) != 2:
+        print('Error: missing yaml file!')
+        print('Usage: ./StePS_IC.py <input yaml file>\nExiting.')
+        sys.exit(2)
+    with open(sys.argv[1], 'r') as f:
+        print(f'Reading the {sys.argv[1]} paramfile...\n')
+        Params = yaml.safe_load(f)
+    # Setting up the cosmology
+
+    print(f'The IC building took {(time.time() - start):.4f} s.')
+
+if __name__ == "__main__":
+    main()
+    
+
+
 #Setting up the units of distance and time
 UNIT_T=47.14829951063323 #Unit time in Gy
 UNIT_V=20.738652969925447 #Unit velocity in km/s
 UNIT_D=3.0856775814671917e24#=1Mpc Unit distance in cm
-print("Reading the %s paramfile...\n" % str(sys.argv[1]))
-document = open(str(sys.argv[1]))
-Params = yaml.safe_load(document)
+
 print("Cosmological Parameters:\n------------------------\nOmega_m:\t%f\t(Ommh2=%f; Omch2=%f)\nOmega_lambda:\t%f\nOmega_k:\t%f\nOmega_b:\t%f\t(Ombh2=%f)\nH0:\t\t%f km/s/Mpc\nRedshift:\t%f\t(a=%f)\nSigma8:\t\t%f\nDark energy model:\t%s" % (Params['OMEGAM'], Params['OMEGAM'] * (Params['H0']/100.0)**2, (Params['OMEGAM'] - Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['OMEGAL'], 1.0-Params['OMEGAM']-Params['OMEGAL'], Params['OMEGAB'], (Params['OMEGAB']) * (Params['H0']/100.0)**2, Params['H0'], Params['REDSHIFT'], 1.0/(Params['REDSHIFT']+1.0), Params['SIGMA8'], Params['DARKENERGYMODEL']))
 if Params['DARKENERGYMODEL'] == 'Lambda':
     print("\n")
@@ -166,20 +265,7 @@ if Params['LOCAL_EXECUTION'] == 0 or Params['LOCAL_EXECUTION'] == 2:
 rho_crit = 3*Params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V #in internal units
 rho_mean = Params['OMEGAM']*rho_crit
 if Params['USECAMBINPUTSPECTRUM']:
-    #setting the initial power spectrum with CAMB
-    print("Calculating input spectrum with CAMB...")
-    ombh2  = Params['OMEGAB'] * (Params['H0']/100.0)**2
-    omch2  = (Params['OMEGAM'] - Params['OMEGAB']) * (Params['H0']/100.0)**2
-    omk    = 1.0 - Params['OMEGAL'] - Params['OMEGAM']
-    kmin   = 1.0*np.pi/Params['LBOX']
-    kmax   = 100.0
-    npoints= 2048
-    kh, pk = get_CAMB_Linear_SPECTRUM(H0=Params['H0'], ombh2=ombh2, omch2=omch2, omk=omk,ns=Params['PRIMORDIALINDEX'],redshift=Params['REDSHIFT'],kmin=kmin,kmax=kmax,npoints=npoints,sigma8=Params['SIGMA8'],DE=Params['DARKENERGYMODEL'],DE_params=Params['DARKENERGYPARAMS'])
-    initialspectrumfilename = Params['FILEWITHINPUTSPECTRUM']
-    outarray = np.vstack((np.log10(kh),np.log10(pk*kh**3/(2*np.pi**2)))).T
-    np.savetxt(initialspectrumfilename,outarray)
-    renormalizeinputspectrum = 0
-    print("...done")
+    Params = generate_camb(Params)
 #Loading the input glass:
 print("Loading the %s input glass file..." % Params['GLASSFILE'])
 glasscoords,glassmasses = Load_snapshot(Params['GLASSFILE'])
@@ -454,21 +540,21 @@ if Params['BIN_MODE'] == 0:
     last_cell_size = Params['NRBINS']*np.pi/(2*np.arctan(Params['RSIM']/Params['D_S']))-Params['NRBINS']
 i = np.arange(Params['NRBINS'])
 if Params['BIN_MODE'] == 0:
-    r_list = Calculate_r_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+    r_list = calculate_r_i(calculate_rlimits_i, i, Params['D_S'], Params['NRBINS'], last_cell_size)
     if Params['HINDEPENDENTUNITS'] == 1:
         r_list *= h
 if Params['BIN_MODE'] == 1:
-    r_list = Calculate_r_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+    r_list = calculate_r_i(calculate_rlimits_i_cvol, i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
     if Params['HINDEPENDENTUNITS'] == 1:
         r_list *= h
 del(i)
 i = np.arange(Params['NRBINS']+1)
 if Params['BIN_MODE'] == 0:
-    shell_limits = Calculate_rlimits_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
+    shell_limits = calculate_rlimits_i(i, Params['D_S'], Params['NRBINS'], last_cell_size)
     if Params['HINDEPENDENTUNITS'] == 1:
         shell_limits *= h
 if Params['BIN_MODE'] == 1:
-    shell_limits = Calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
+    shell_limits = calculate_rlimits_i_cvol(i, Params['D_S'], Params['NRBINS'], Params['RSIM'])
     if Params['HINDEPENDENTUNITS'] == 1:
         shell_limits *= h
 #calculating redshift-comoving distance function for the redshift cone
@@ -526,5 +612,4 @@ if Params['LOCAL_EXECUTION'] > 0:
                 call(["rm", "-f", (Params['OUTDIR'] + "inputspec_" + Params['FILEBASE'] + ".txt")])
 call(["rm", "-f", (Params['OUTDIR'] + Params['FILEBASE'] + "_GLASS")])
 print("...done.\n")
-end = time.time()
-print("The IC making took %fs.\n" % (end-start))
+
