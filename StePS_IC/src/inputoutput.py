@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
@@ -30,8 +28,8 @@ autotranslate(['glio'])
 import glio
 
 #defining functions
-def load_snapshot(filename, *, constant_res=False, silent=False,
-                  double_precision=False, **kwargs):
+def load_snapshot(filename, *, constant_res=False, double_precision=False,
+                  silent=False, **kwargs):
     '''
     Loads a Gadget-format snapshot of a cosmological simulations from
     either an ASCII or HDF5 input file.
@@ -50,7 +48,7 @@ def load_snapshot(filename, *, constant_res=False, silent=False,
     float_dtype = np.float64 if double_precision else np.float32
 
     # ASCII snapshot
-    if filename.endswith('.dat'):
+    if filename.lower().endswith('.dat'):
         if not silent:
             print(f"\tReading the input ASCII file {filename} ...")
         data = np.loadtxt(filename)
@@ -59,9 +57,9 @@ def load_snapshot(filename, *, constant_res=False, silent=False,
         velocities = np.array(data[:, 3:6], dtype=float_dtype)
         masses = np.array(data[:, 6], dtype=float_dtype)
         if not silent:
-            print("\t...done\n")
+            print("\t...done.\n")
     # HDF5 snapshot
-    elif filename.endswith('.hdf5'):
+    elif filename.lower().endswith('.hdf5'):
         if not silent:
             print(f"\tReading the input HDF5 file {filename} ...")
         # Collect all filenames in the parent directory of `filename` that
@@ -77,9 +75,9 @@ def load_snapshot(filename, *, constant_res=False, silent=False,
         # the corresponding arrays
         particleIDs, coordinates, velocities, masses = [], [], [], []
         for hdf5_file in filenames:
+            if not silent:
+                print(f"\t\tOpening {hdf5_file} ...")
             with h5py.File(hdf5_file, 'r') as f:
-                if not silent:
-                    print(f"\t\tOpening {hdf5_file} ...")
                 particleIDs += f['/PartType1/ParticleIDs'][:]
                 coordinates += f['/PartType1/Coordinates'][:]
                 velocities += f['/PartType1/Velocities'][:]
@@ -88,12 +86,12 @@ def load_snapshot(filename, *, constant_res=False, silent=False,
                 else:
                     masses += f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1]
         if not silent:
-            print("\t...done\n")
+            print("\t...done.\n")
         particleIDs = np.array(particleIDs, dtype=np.uint64)
         coordinates = np.array(coordinates, dtype=float_dtype)
         velocities = np.array(velocities, dtype=float_dtype)
         masses = np.array(masses, dtype=float_dtype)
-    # Gadget-format snapshot
+    # (Assume) Gadget-format snapshot
     else:
         if not silent:
             print(f"\tReading the input Gadget file {filename} ...")
@@ -102,20 +100,19 @@ def load_snapshot(filename, *, constant_res=False, silent=False,
         velocities = pygadgetreader.readsnap(filename, 'vel', 'dm')
         masses = pygadgetreader.readsnap(filename, 'mass', 'dm')
         if not silent:
-            print("\t...done\n")
+            print("\t...done.\n")
     return particleIDs, coordinates, velocities, masses
 
 
-def Load_params_from_HDF5_snap(FILENAME):
-    if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
-        raise Exception("Error: input file %s is not in hdf5 format.\n" % FILENAME)
-    HDF5_snapshot = h5py.File(FILENAME, "r")
-    Ntot = int(HDF5_snapshot['/Header'].attrs['NumPart_Total'][1])
-    z = np.double(HDF5_snapshot['/Header'].attrs['Redshift'])
-    Om = np.double(HDF5_snapshot['/Header'].attrs['Omega0'])
-    Ol = np.double(HDF5_snapshot['/Header'].attrs['OmegaLambda'])
-    H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])*100.0
-    HDF5_snapshot.close()
+def Load_params_from_HDF5_snap(filename):
+    if not filename.lower().endswith('.hdf5'):
+        raise Exception('Error: input file {filename} is not in hdf5 format!')
+    with h5py.File(filename, 'r') as f:
+        Ntot = int(f['/Header'].attrs['NumPart_Total'][1])
+        z = np.double(f['/Header'].attrs['Redshift'])
+        Om = np.double(f['/Header'].attrs['Omega0'])
+        Ol = np.double(f['/Header'].attrs['OmegaLambda'])
+        H0 = np.double(f['/Header'].attrs['HubbleParam'])*100.0
     return z, Om, Ol, H0, Ntot
 
 
@@ -145,10 +142,10 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     #Creating the header
     header_group = HDF5_snapshot.create_group("/Header")
     #Writing the header attributes
-    header_group.attrs['NumPart_ThisFile'] = np.array([0,N,0,0,0,0],dtype=np.uint32)
-    header_group.attrs['NumPart_Total'] = np.array([0,N,0,0,0,0],dtype=np.uint32)
-    header_group.attrs['NumPart_Total_HighWord'] = np.array([0,0,0,0,0,0],dtype=np.uint32)
-    header_group.attrs['MassTable'] = np.array([0,0,0,0,0,0],dtype=npdatatype)
+    header_group.attrs['NumPart_ThisFile'] = np.array([0,N,0,0,0,0], dtype=np.uint32)
+    header_group.attrs['NumPart_Total'] = np.array([0,N,0,0,0,0], dtype=np.uint32)
+    header_group.attrs['NumPart_Total_HighWord'] = np.array([0,0,0,0,0,0], dtype=np.uint32)
+    header_group.attrs['MassTable'] = np.array([0,0,0,0,0,0], dtype=npdatatype)
     header_group.attrs['Time'] = np.double(1.0/(Redshift+1))
     header_group.attrs['Redshift'] = np.double(Redshift)
     header_group.attrs['BoxSize'] = np.double(Linearsize)
@@ -165,17 +162,17 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     #Header created.
     #Creating datasets for the particle data
     particle_group = HDF5_snapshot.create_group("/PartType1")
-    X = particle_group.create_dataset("Coordinates", (N,3),dtype=HDF5datatype)
-    V = particle_group.create_dataset("Velocities", (N,3),dtype=HDF5datatype)
-    IDs = particle_group.create_dataset("ParticleIDs", (N,),dtype='uint64')
-    M = particle_group.create_dataset("Masses", (N,),dtype=HDF5datatype)
+    X = particle_group.create_dataset("Coordinates", (N, 3), dtype=HDF5datatype)
+    V = particle_group.create_dataset("Velocities", (N, 3), dtype=HDF5datatype)
+    IDs = particle_group.create_dataset("ParticleIDs", (N,), dtype='uint64')
+    M = particle_group.create_dataset("Masses", (N,), dtype=HDF5datatype)
     #Saving the particle data
-    X[:,:] = dataarray[:,0:3]
-    V[:,:] = dataarray[:,3:6]
-    M[:] = dataarray[:,6]
+    X[:,:] = dataarray[:, 0:3]
+    V[:,:] = dataarray[:, 3:6]
+    M[:] = dataarray[:, 6]
     IDs[:] = np.arange(N, dtype=np.uint64)
     HDF5_snapshot.close()
-    return;
+    return
 
 def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM):
     '''
