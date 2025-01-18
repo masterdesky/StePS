@@ -18,131 +18,93 @@
 
 # Functions for reading and writing particle data
 
-import sys
-import time
-from pygadgetreader import *
+import os
+import h5py
+import numpy as np
+
+import pygadgetreader
+from astropy.units import solMass,Mpc,m,s
+
 from past.translation import autotranslate
 autotranslate(['glio'])
 import glio
-import numpy as np
-import h5py
-from astropy.units import solMass,Mpc,m,s
 
 #defining functions
+def load_snapshot(filename, *, constant_res=False, silent=False,
+                  double_precision=False, **kwargs):
+    '''
+    Loads a Gadget-format snapshot of a cosmological simulations from
+    either an ASCII or HDF5 input file.
 
-def Load_snapshot(FILENAME,CONSTANT_RES=False,RETURN_VELOCITIES=False,RETURN_IDs=False,SILENT=False,DOUBLEPRECISION=False):
-    if DOUBLEPRECISION:
-        floatdtype=np.float64
-    else:
-        floatdtype=np.float32
-    #reading the input files:
-    if FILENAME[-4:] == '.dat':
-        if SILENT==False:
-            print("\tThe input file is in ASCII format. Reading the input file %s ..." % (FILENAME))
-        data = np.loadtxt(FILENAME)
-        Coordinates = data[:,0:3]
-        if RETURN_VELOCITIES:
-            Velocities = data[:,3:6]
-        Masses = data[:,6]
-        if RETURN_IDs:
-            ParticleIDs = np.arange(len(Masses), dtype=np.uint64)
-        del(data)
-        if SILENT==False:
+    Parameters:
+    -----------
+    filename: str
+        Name of the input file
+    constant_res: bool, optional; default: False
+        If True, the snapshot has constant resolution
+    silent: bool, optional; default: False
+        If True, suppresses the output
+    double_precision: bool, optional; default: False
+        If True, uses double precision for the output
+    '''
+    float_dtype = np.float64 if double_precision else np.float32
+
+    # ASCII snapshot
+    if filename.endswith('.dat'):
+        if not silent:
+            print(f"\tReading the input ASCII file {filename} ...")
+        data = np.loadtxt(filename)
+        particleIDs = np.arange(data.shape[0], dtype=np.uint64)
+        coordinates = np.array(data[:, :3], dtype=float_dtype)
+        velocities = np.array(data[:, 3:6], dtype=float_dtype)
+        masses = np.array(data[:, 6], dtype=float_dtype)
+        if not silent:
             print("\t...done\n")
-    elif FILENAME[-4:] == 'hdf5':
-        if SILENT==False:
-            print("\tThe input file is in hdf5 format.")
-        if FILENAME[-7:] == '.0.hdf5':
-            if SILENT==False:
+    # HDF5 snapshot
+    elif filename.endswith('.hdf5'):
+        if not silent:
+            print(f"\tReading the input HDF5 file {filename} ...")
+        # Collect all filenames in the parent directory of `filename` that
+        # have a '.hdf5' extension. If there are multiple files, sort them
+        # by the integer value in the filename as in `filename.<int>.hdf5`.
+        parent_dir = os.path.dirname(filename)
+        filenames = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir) if f.endswith('.hdf5')]
+        if len(filenames) > 1:
+            if not silent:
                 print("\tSnapshot is stored in multiple files.")
-            fileindex = 0
-            while True:
-                filename = list(FILENAME)
-                filename[-7:] = ".%i.hdf5"%fileindex
-                filename_str = "".join(filename)
-                if os.path.exists(filename_str):
-                    if SILENT==False:
-                        print("\t\tOpening %s..."%filename_str)
-                    HDF5_snapshot = h5py.File(filename_str, "r")
-                    if fileindex==0:
-                        N = int(HDF5_snapshot['/Header'].attrs['NumPart_Total'][1])
-                        Nthisfile = int(HDF5_snapshot['/Header'].attrs['NumPart_ThisFile'][1])
-                        Coordinates = np.zeros((N,3), dtype=floatdtype)
-                        if RETURN_VELOCITIES:
-                            Velocities = np.zeros((N,3), dtype=floatdtype)
-                        if RETURN_IDs:
-                            ParticleIDs = np.zeros(N, dtype=np.uint64)
-                        Masses = np.ones((N), dtype=floatdtype)
-                        Coordinates[:Nthisfile,0:3] = HDF5_snapshot['/PartType1/Coordinates']
-                        if RETURN_VELOCITIES:
-                            Velocities[:Nthisfile,0:3] = HDF5_snapshot['/PartType1/Velocities']
-                        if CONSTANT_RES==False:
-                            Masses[:Nthisfile] = HDF5_snapshot['/PartType1/Masses']
-                        else:
-                            Masses *= HDF5_snapshot['/Header'].attrs['MassTable'][1] #1e11Msol
-                        if RETURN_IDs:
-                            ParticleIDs[:Nthisfile] = HDF5_snapshot['/PartType1/ParticleIDs']
-                        Nfilled=Nthisfile
-                    else:
-                        Nthisfile = int(HDF5_snapshot['/Header'].attrs['NumPart_ThisFile'][1])
-                        Coordinates[Nfilled:Nfilled+Nthisfile,0:3] = HDF5_snapshot['/PartType1/Coordinates']
-                        if RETURN_VELOCITIES:
-                            Velocities[Nfilled:Nfilled+Nthisfile,0:3] = HDF5_snapshot['/PartType1/Velocities']
-                        if RETURN_IDs:
-                            ParticleIDs[Nfilled:Nfilled+Nthisfile] = HDF5_snapshot['/PartType1/ParticleIDs']
-                        if CONSTANT_RES==False:
-                            Masses[Nfilled:Nfilled+Nthisfile] = HDF5_snapshot['/PartType1/Masses']
-                        Nfilled = Nfilled+Nthisfile
-                    HDF5_snapshot.close()
-                    del(HDF5_snapshot)
-                    fileindex+=1
-                    if SILENT==False:
-                        print("\t\t...done.")
+            filenames.sort(key=lambda x: int(x.split('.')[-2]))
+        # Read the particle data from each file and concatenate them in
+        # the corresponding arrays
+        particleIDs, coordinates, velocities, masses = [], [], [], []
+        for hdf5_file in filenames:
+            with h5py.File(hdf5_file, 'r') as f:
+                if not silent:
+                    print(f"\t\tOpening {hdf5_file} ...")
+                particleIDs += f['/PartType1/ParticleIDs'][:]
+                coordinates += f['/PartType1/Coordinates'][:]
+                velocities += f['/PartType1/Velocities'][:]
+                if constant_res:
+                    masses += f['/PartType1/Masses'][:]
                 else:
-                    if SILENT==False:
-                        print("\tAll file loaded for snapshot %s."%FILENAME)
-                    break;
-        else:
-            if SILENT==False:
-                print("\tReading the input file %s ..." % (FILENAME))
-            HDF5_snapshot = h5py.File(FILENAME, "r")
-            N = int(HDF5_snapshot['/Header'].attrs['NumPart_ThisFile'][1])
-            Coordinates = np.zeros((N,3), dtype=floatdtype)
-            if RETURN_VELOCITIES:
-                Velocities = np.zeros((N,3), dtype=floatdtype)
-            if RETURN_IDs:
-                ParticleIDs = np.zeros((N), dtype=np.uint64)
-            Masses = np.zeros((N), dtype=floatdtype)
-            Coordinates[:,0:3] = HDF5_snapshot['/PartType1/Coordinates']
-            if RETURN_VELOCITIES:
-                Velocities[:,0:3] = HDF5_snapshot['/PartType1/Velocities']
-            if CONSTANT_RES==False:
-                Masses[:] = HDF5_snapshot['/PartType1/Masses']
-            if RETURN_IDs:
-                ParticleIDs[:] = HDF5_snapshot['/PartType1/ParticleIDs']
-            HDF5_snapshot.close()
-            del(HDF5_snapshot)
-            if SILENT==False:
-                print("\t...done\n")
+                    masses += f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1]
+        if not silent:
+            print("\t...done\n")
+        particleIDs = np.array(particleIDs, dtype=np.uint64)
+        coordinates = np.array(coordinates, dtype=float_dtype)
+        velocities = np.array(velocities, dtype=float_dtype)
+        masses = np.array(masses, dtype=float_dtype)
+    # Gadget-format snapshot
     else:
-        if SILENT==False:
-            print("\tAssuming gadget-format for the inputfile. Trying to open it...")
-        Coordinates = readsnap(FILENAME, 'pos', 'dm')
-        Masses = readsnap(FILENAME, 'mass', 'dm')
-        if SILENT==False:
-            print('\tMasses =%f' %np.mean(Masses))
-            print("\t...done.")
+        if not silent:
+            print(f"\tReading the input Gadget file {filename} ...")
+        particleIDs = pygadgetreader.readsnap(filename, 'IDs', 'dm')
+        coordinates = pygadgetreader.readsnap(filename, 'pos', 'dm')
+        velocities = pygadgetreader.readsnap(filename, 'vel', 'dm')
+        masses = pygadgetreader.readsnap(filename, 'mass', 'dm')
+        if not silent:
+            print("\t...done\n")
+    return particleIDs, coordinates, velocities, masses
 
-    if RETURN_VELOCITIES==False:
-        if RETURN_IDs:
-            return Coordinates, Masses, ParticleIDs
-        else:
-            return Coordinates, Masses
-    else:
-        if RETURN_IDs:
-            return Coordinates, Velocities, Masses, ParticleIDs
-        else:
-            return Coordinates, Velocities, Masses
 
 def Load_params_from_HDF5_snap(FILENAME):
     if FILENAME[-4:] != 'hdf5' and FILENAME[-4:] != 'HDF5':
@@ -155,6 +117,7 @@ def Load_params_from_HDF5_snap(FILENAME):
     H0 = np.double(HDF5_snapshot['/Header'].attrs['HubbleParam'])*100.0
     HDF5_snapshot.close()
     return z, Om, Ol, H0, Ntot
+
 
 def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, OmegaL, HubbleParam, precision):
     '''
