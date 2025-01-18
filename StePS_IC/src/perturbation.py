@@ -1,0 +1,63 @@
+#*******************************************************************************#
+#  StePS_IC.py - An initial condition generator for                             #
+#     STEreographically Projected cosmological Simulations                      #
+#    Copyright (C) 2017-2025 Gabor Racz                                         #
+#                                                                               #
+#    This program is free software; you can redistribute it and/or modify       #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation; either version 2 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    This program is distributed in the hope that it will be useful,            #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#*******************************************************************************#
+
+import numpy as np
+
+
+# Functions for cosmological perturbation theory
+def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
+    '''
+    Perform the Zel'dovich approximation to compute particle positions and velocities.
+    
+    Parameters:
+    x (ndarray): Initial unperturbed particle positions (N, 3).
+    overdensity_field (ndarray): Target overdensity field (real field).
+    growth_rate (float): Time derivative of the growth factor D(t) in km/s/Mpc units.
+    
+    Returns:
+    positions (ndarray): Updated particle positions (N, 3).
+    velocities (ndarray): Particle velocities (N, 3).
+    '''
+    # TODO: Köbös rácson elmozdulásmező
+    # 3D rácspontok (ezek) között kiinterpolálom ezt a mezőt
+    # Interpoláció választása CIC
+    nres = overdensity_field.shape[0]
+    kk = np.fft.fftfreq(nres) * 2*np.pi/Lbox * nres
+    ks = np.fft.rfftfreq(nres) * 2*np.pi/Lbox * nres
+    kvec = np.array(np.meshgrid(kk, kk, ks))
+    kmod = np.sqrt(np.sum(kvec**2, axis=0))
+    delta_k = np.fft.rfftn(overdensity_field)
+    xpert = np.zeros(x.shape, dtype=np.float32)
+    v = np.zeros(x.shape, dtype=np.float32)
+    for i, xi in enumerate(('x', 'y', 'z')):
+        psi_i = np.zeros_like(kmod, dtype=complex)
+        mask = kmod > 0.0
+        psi_i[mask] = -1j * kvec[i, mask] / kmod[mask]**2 * delta_k[mask]
+        disp_field = np.fft.irfftn(psi_i)
+        max_disp = np.max(disp_field)
+        print(f'Maximal \'{xi}\' displacement: {max_disp*1000} kpc/h; '\
+              f'in units of mean particle separation: {max_disp * nres/Lbox}')
+        xpert[i, ...] = x[i, ...] + disp_field
+        v[i, ...] = disp_field*growth_rate
+    #Periodic wrapping
+    xpert = np.fmod(xpert+Lbox, Lbox)
+    #Converting the velocities from km/s/h to km/s.
+    v /= h 
+    return xpert, v
+
+
+def second_order_lpt():
+    pass

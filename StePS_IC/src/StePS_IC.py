@@ -77,45 +77,6 @@ def calculate_r_i(r_func, i, d_s, N_r_bin, last_cell_size):
     r_i = 0.25 * (ul-ll) * (ll*ll + 2*ll*ul + 3*ul*ul) / (ll*ll + ll*ul + ul*ul) + ll
     return r_i
 
-# Functions for cosmological perturbation theory
-def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
-    '''
-    Perform the Zel'dovich approximation to compute particle positions and velocities.
-    
-    Parameters:
-    x (ndarray): Initial unperturbed particle positions (N, 3).
-    overdensity_field (ndarray): Target overdensity field (real field).
-    growth_rate (float): Time derivative of the growth factor D(t) in km/s/Mpc units.
-    
-    Returns:
-    positions (ndarray): Updated particle positions (N, 3).
-    velocities (ndarray): Particle velocities (N, 3).
-    '''
-    # TODO: Köbös rácson elmozdulásmező
-    # 3D rácspontok (ezek) között kiinterpolálom ezt a mezőt
-    # Interpoláció választása CIC
-    nres = overdensity_field.shape[0]
-    kk = np.fft.fftfreq(nres) * 2*np.pi/Lbox * nres
-    ks = np.fft.rfftfreq(nres) * 2*np.pi/Lbox * nres
-    kvec = np.array(np.meshgrid(kk, kk, ks))
-    kmod = np.sqrt(np.sum(kvec**2, axis=0))
-    delta_k = np.fft.rfftn(overdensity_field)
-    xpert = np.zeros(x.shape, dtype=np.float32)
-    v = np.zeros(x.shape, dtype=np.float32)
-    for i, xi in zip(range(3), ('x', 'y', 'z')):
-        psi_i = np.zeros_like(kmod, dtype=complex)
-        mask = kmod > 0.0
-        psi_i[mask] = -1j * kvec[i, mask] / kmod[mask]**2 * delta_k[mask]
-        disp_field = np.fft.irfftn(psi_i)
-        max_disp = np.max(disp_field)
-        print(f"Maximal {xi} displacement: {max_disp*1000} kpc/h; in units of mean particle separation: {max_disp*nres/Lbox}")
-        xpert[i, ...] = x[i, ...] + disp_field
-        v[i, ...] = disp_field*growth_rate
-    #Periodic wrapping
-    xpert = np.fmod(xpert+Lbox, Lbox)
-    #Converting the velocities from km/s/h to km/s.
-    v /= h 
-    return xpert, v
 
 def header(N1:int = 97, N2:int = 66):
     art = dedent(f'''
@@ -158,7 +119,7 @@ def process_cosmo_params(params):
     Parameters:
     -----------
     params : dict
-        Dictionary containing the parameter list.
+        Dictionary containing the parameter list of a StePS simulation.
     '''
     params['OMMH2'] = params['OMEGAM'] * (params['H0']/100.0)**2
     params['OMCH2'] = (params['OMEGAM'] - params['OMEGAB']) * (params['H0']/100.0)**2
@@ -183,16 +144,16 @@ def process_cosmo_params(params):
     # Supplementary log messages and operations
     if params['DARKENERGYMODEL'] == 'Lambda':
         print('\n')
-    elif params['USECAMBINPUTSPECTRUM'] == False:
-        print('Error: For non-standard dark energy parametrization USECAMBINPUTSPECTRUM has to be set True!\nExiting.\n')
-        sys.exit(2)
+    elif not params['USECAMBINPUTSPECTRUM']:
+        raise ValueError('Error: For non-standard dark energy parametrization '\
+                         'USECAMBINPUTSPECTRUM has to be set True!\nExiting.\n')
     elif params['DARKENERGYMODEL'] == 'w0':
         print(f'w = {params['DARKENERGYPARAMS'][0]:.3f}\n')
     elif params['DARKENERGYMODEL'] == 'CPL':
-        print(f'w0 = {params['DARKENERGYPARAMS'][0]:.3f}\nwa = {params['DARKENERGYPARAMS'][1]:.3f}\n')
+        print(f'w0 = {params['DARKENERGYPARAMS'][0]:.3f}\n\
+                wa = {params['DARKENERGYPARAMS'][1]:.3f}\n')
     else:
-        print('Error: unkown dark energy parametrization!\nExiting.\n')
-        sys.exit(2)
+        raise ValueError('Error: unkown dark energy parametrization!\nExiting.\n')
     params['INPUTSPECTRUM_UNITLENGTH_IN_CM'] = np.float64(params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
     return params
 
@@ -203,7 +164,7 @@ def process_ic_params(params):
     Parameters:
     -----------
     params : dict
-        Dictionary containing the parameter list.
+        Dictionary containing the parameter list of a StePS simulation.
     '''
 
     # Print initial condition parameters
@@ -236,9 +197,8 @@ def process_ic_params(params):
     params['UNITLENGTH_IN_CM'] = np.float64(params['UNITLENGTH_IN_CM'])
     params['UNITMASS_IN_G'] = np.float64(params['UNITMASS_IN_G'])
     params['UNITVELOCITY_IN_CM_PER_S'] = np.float64(params['UNITVELOCITY_IN_CM_PER_S'])
-    if params['COMOVINGIC'] != 0 and params['COMOVINGIC'] != 1:
-        print('Error: the COMOVINGIC parameter should be 1 or 0!\nExiting.\n')
-        sys.exit(2)
+    if params['COMOVINGIC'] not in (0, 1):
+        raise ValueError('Error: the COMOVINGIC parameter should be 1 or 0!\nExiting.')
     return params
 
 def process_icgen_parameters(params):
@@ -248,7 +208,7 @@ def process_icgen_parameters(params):
     Parameters:
     -----------
     params : dict
-        Dictionary containing the parameter list.
+        Dictionary containing the parameter list of a StePS simulation.
     '''
 
     # --- Validate IC Generator Type ---
@@ -259,14 +219,13 @@ def process_icgen_parameters(params):
     }
     icgen_type = params.get('ICGENERATORTYPE')
     if icgen_type not in generator_map:
-        print(f"Error: unknown IC generator type: {icgen_type}\nExiting.")
-        sys.exit(2)
+        raise ValueError(f"Error: unknown IC generator type: {icgen_type}\nExiting.")
     generator_str = generator_map[icgen_type]
 
     # --- Validate Executable ---
     if not os.path.exists(params['EXECUTABLE']):
-        print(f"Error: the executable '{params['EXECUTABLE']}' does not exist.\nExiting.")
-        sys.exit(2)
+        raise FileNotFoundError(f"Error: the executable '{params['EXECUTABLE']}' "\
+                                 "does not exist.\nExiting.")
 
     # --- Validate Binning Mode ---
     bin_mode_map = {
@@ -275,8 +234,7 @@ def process_icgen_parameters(params):
     }
     bin_mode = params.get('BIN_MODE')
     if bin_mode not in bin_mode_map:
-        print(f"Error: unknown binning mode {bin_mode}!\nExiting.")
-        sys.exit(2)
+        raise ValueError(f"Error: unknown binning mode {bin_mode}!\nExiting.")
     bin_mode_str = bin_mode_map[bin_mode]
 
     # --- Validate Output Format & Precision ---
@@ -291,8 +249,7 @@ def process_icgen_parameters(params):
     }
     output_format = params.get('OUTPUTFORMAT')
     if output_format not in output_format_map:
-        print(f"Error: unknown OUTPUTFORMAT ({output_format})!\nExiting.")
-        sys.exit(2)
+        raise ValueError(f"Error: unknown OUTPUTFORMAT value {output_format}!\nExiting.")
     output_format_str, fixed_precision_str = output_format_map[output_format]
 
     if fixed_precision_str is not None:
@@ -302,8 +259,7 @@ def process_icgen_parameters(params):
         # For formats that require an actual precision check (e.g. HDF5)
         output_precision = params.get('OUTPUTPRECISION')
         if output_precision not in precision_map:
-            print(f"Error: unknown OUTPUTPRECISION ({output_precision}) for HDF5!\nExiting.")
-            sys.exit(2)
+            raise ValueError(f"Error: unknown OUTPUTPRECISION value {output_precision}!\nExiting.")
         output_precision_str = precision_map[output_precision]
 
     # --- Phase Shift ---
@@ -320,8 +276,7 @@ def process_icgen_parameters(params):
     elif local_execution in (0, 2):
         execution_str = "remote"
     else:
-        print(f"Error: unknown LOCAL_EXECUTION value {local_execution}!\nExiting.")
-        sys.exit(2)
+        raise ValueError(f"Error: unknown LOCAL_EXECUTION value {local_execution}!\nExiting.")
 
     text = dedent(f"""
     IC generator parameters:
@@ -344,7 +299,7 @@ def generate_camb(params):
     Parameters:
     -----------
     params : dict
-        Dictionary containing the parameter list.
+        Dictionary containing the parameter list of a StePS simulation.
     '''
     params['RENORMALIZEINPUTSPECTRUM'] = 0
     
@@ -352,14 +307,14 @@ def generate_camb(params):
     kmin    = 1.0*np.pi/params['LBOX']
     kmax    = 100.0
     npoints = 2048
-    kh, pk  = get_CAMB_Linear_SPECTRUM(
+    kh, pk  = linear_spectrum_camb(
         H0=params['H0'], ombh2=params['OMBH2'], omch2=params['OMCH2'], omk=params['OMK'],
         ns=params['PRIMORDIALINDEX'], redshift=params['REDSHIFT'],
         kmin=kmin, kmax=kmax, npoints=npoints, sigma8=params['SIGMA8'],
         DE=params['DARKENERGYMODEL'], DE_params=params['DARKENERGYPARAMS'])
     Pk3 = np.vstack((np.log10(kh), np.log10(pk*kh**3/(2*np.pi**2)))).T
     np.savetxt(params['FILEWITHINPUTSPECTRUM'], Pk3)
-    print('...done')
+    print('...done.')
     return params
 
 
@@ -368,9 +323,7 @@ def main():
     header(N1=97, N2=66)
     # Reading in input parameterfile in yaml format
     if len(sys.argv) != 2:
-        print('Error: missing yaml file!')
-        print('Usage: ./StePS_IC.py <input yaml file>\nExiting.')
-        sys.exit(2)
+        raise ValueError('Error: missing yaml file!\nUsage: ./StePS_IC.py <input yaml file>\nExiting.')
     with open(sys.argv[1], 'r') as f:
         print(f'Reading the {sys.argv[1]} paramfile...\n')
         params = yaml.safe_load(f)
@@ -418,6 +371,8 @@ original_glass = np.copy(input_glass)
 #Calculating the Mass list:
 Mass_list = np.unique(input_glass[:,6])
 print("Number of different masses:\t%i\n" % len(Mass_list))
+
+
 #Periodically shifting the input glass:
 print("Periodically shifting the input glass...")
 input_glass[:,0] = input_glass[:,0]+params['VOIX']
@@ -430,6 +385,8 @@ for i in range(0, Npart):
         if input_glass[i,k]>params['LBOX']:
             input_glass[i,k] -= params['LBOX']
 print("...done.\n")
+
+
 #Converting the input glass to gadget format:
 if params['LOCAL_EXECUTION'] < 2:
     print("Converting the input glass to Gadget format...")
