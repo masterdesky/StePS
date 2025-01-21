@@ -20,16 +20,26 @@ import numpy as np
 # Functions for cosmological perturbation theory
 def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
     '''
-    Perform the Zel'dovich approximation to compute particle positions and velocities.
+    Perform the Zel'dovich approximation to compute particle positions
+    and velocities.
     
     Parameters:
-    x (ndarray): Initial unperturbed particle positions (N, 3).
-    overdensity_field (ndarray): Target overdensity field (real field).
-    growth_rate (float): Time derivative of the growth factor D(t) in km/s/Mpc units.
+    -----------
+    x : ndarray of shape (N, 3)
+        Initial unperturbed particle positions.
+    Lbox : float
+        Box size in Mpc/h.
+    overdensity_field : ndarray of shape (N, N, N)
+        Target overdensity field (real field).
+    growth_rate : float
+        Time derivative of the growth factor D(t) in km/s/Mpc units.
     
     Returns:
-    positions (ndarray): Updated particle positions (N, 3).
-    velocities (ndarray): Particle velocities (N, 3).
+    --------
+    positions : ndarray of shape (N, 3)
+        Updated particle positions.
+    velocities : ndarray of shape (N, 3)
+        Updated particle velocities.
     '''
     # TODO: Köbös rácson elmozdulásmező
     # 3D rácspontok (ezek) között kiinterpolálom ezt a mezőt

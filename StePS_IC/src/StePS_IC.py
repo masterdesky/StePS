@@ -32,50 +32,17 @@ from pynverse import inversefunc
 from write_ICparamfile import *
 from inputoutput import *
 from powerspec import *
+from stereographic import *
+from perturbation import *
+
 
 _VERSION = 'v2.0'
 _YEAR = '2017-2025'
 
 #StePS internal units
-UNIT_T=47.14829951063323      #Unit time in Gy
-UNIT_V=20.738652969925447     #Unit velocity in km/s
-UNIT_D=3.0856775814671917e24  #=1Mpc Unit distance in cm
-
-
-#Basic function for the stereographic projection
-def calculate_rlimits_i(i, d_s, N_r_bin, last_cell_size):
-    r_i = d_s*np.tan((i)*np.pi/(2.0*(N_r_bin+last_cell_size)))
-    return r_i
-def calculate_rlimits_i_cvol(i, d_s, N_r_bin, R_sim):
-    '''
-    Calculates the lower limit of the i-th bin for the constant volume binning in the
-    non-compact space (constant volume in the compact space)
-
-    Parameters:
-    -----------
-    i : int
-        The ID of the boundary
-    d_s : float
-        The diameter of the 4D sphere
-    N_r_bin : int
-        Number of the radial bins
-    R_sim : float
-        The radius of the simulation volume in real space
-    '''
-    omega_max = 2.0*np.arctan(R_sim/d_s)
-    V_unit_bin = (2.0*omega_max-np.sin(2.0*omega_max))/N_r_bin
-    V_unit_to_i = i*V_unit_bin
-    #inverting numerically the x-sin(x) function
-    func = lambda x: x-np.sin(x)
-    omega_i = inversefunc(func, y_values=V_unit_to_i)/2.0
-    r_i = d_s*np.tan(omega_i/2)
-    return r_i
-def calculate_r_i(r_func, i, d_s, N_r_bin, last_cell_size):
-    ll = r_func(i, d_s, N_r_bin, last_cell_size)    # lower limit
-    ul = r_func(i+1, d_s, N_r_bin, last_cell_size)  # upper limit
-    #simple assumption with "conical frustum"
-    r_i = 0.25 * (ul-ll) * (ll*ll + 2*ll*ul + 3*ul*ul) / (ll*ll + ll*ul + ul*ul) + ll
-    return r_i
+UNIT_T = 47.14829951063323      #Unit time in Gy
+UNIT_V = 20.738652969925447     #Unit velocity in km/s
+UNIT_D = 3.0856775814671917e24  #=1Mpc Unit distance in cm
 
 
 def header(N1:int = 97, N2:int = 66):
@@ -317,6 +284,19 @@ def generate_camb(params):
     print('...done.')
     return params
 
+def load_glass(params):
+    '''
+    Load the input glass file.
+
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing the parameter list of a StePS simulation.
+    '''
+    print(f'Loading the {params["GLASSFILE"]} input glass file...')
+    _, C, _, M = load_snapshot(params['GLASSFILE'])
+    input_glass = np.vstack((np.hstack((C, np.zeros_like(C, dtype=np.float64)).T, M))).T
+    
 
 def main():
     start = time.time()
@@ -331,7 +311,7 @@ def main():
     process_cosmo_params(params)
     process_ic_params(params)
     process_icgen_parameters(params)
-    # Calculating the density from the cosmological parameters
+    # Calculating the density from the cosmological parameters in simulation units
     params['RHO_CRIT'] = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
     params['RHO_MEAN'] = params['OMEGAM']*params['RHO_CRIT']
     # Generating the initial power spectrum with CAMB
@@ -339,8 +319,7 @@ def main():
         generate_camb(params)
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    _, GC, _, GM = load_snapshot(params['GLASSFILE'])
-    input_glass = np.vstack((np.hstack((GC, np.zeros_like(GC, dtype=np.float64)).T, GM))).T
+
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
 
@@ -358,6 +337,7 @@ Npart = len(input_glass)
 del(glasscoords)
 del(glassmasses)
 print("...done.")
+
 #Calculating the total mass, and the average density
 M_tot = np.sum(input_glass[:,6])
 V_sim = 4.0*np.pi/3.0*params['RSIM']**3
@@ -371,6 +351,7 @@ original_glass = np.copy(input_glass)
 #Calculating the Mass list:
 Mass_list = np.unique(input_glass[:,6])
 print("Number of different masses:\t%i\n" % len(Mass_list))
+M_tot_box = rho_mean*params['LBOX']**3
 
 
 #Periodically shifting the input glass:
@@ -396,7 +377,7 @@ if params['LOCAL_EXECUTION'] < 2:
     ascii2gadget(output_glassfile, gadget_glassfile, params['LBOX'], params['H0'], params['UNITLENGTH_IN_CM'])
     call(["rm", "-f", output_glassfile])
     print("...done.\n")
-M_tot_box = rho_mean*params['LBOX']**3
+
 if params['NMESH'] == 0:
     #Calculating the Nsample-Mass function:
     Nsample_func = np.zeros((len(Mass_list),2))

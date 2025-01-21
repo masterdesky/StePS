@@ -20,12 +20,12 @@ import os
 import h5py
 import numpy as np
 
-import pygadgetreader
+# import pygadgetreader
 from astropy.units import solMass,Mpc,m,s
 
-from past.translation import autotranslate
-autotranslate(['glio'])
-import glio
+# from past.translation import autotranslate
+# autotranslate(['glio'])
+# import glio
 
 #defining functions
 def load_snapshot(filename, *, constant_res=False, double_precision=False,
@@ -174,16 +174,26 @@ def writeHDF5snapshot(dataarray, outputfilename, Linearsize, Redshift, OmegaM, O
     HDF5_snapshot.close()
     return
 
-def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM):
+def ascii2gadget(infile, outfile, Lbox, H0, UNITLENGTH_IN_CM,
+                 UNIT_D=3.0856775814671917e24):
     '''
-    Function to convert a StePS ascii file to Gadget format.
-    infile: input StePS ascii file
-    outfile: output Gadget file
+    Converts a StePS ASCII snapshot to Gadget format.
+
+    Parameters:
+    -----------
+    infile : str
+        Name of the input StePS ASCII file.
+    outfile : str
+        Name of the output Gadget-format file.
+    Lbox : float
+        Box size in Mpc/h.
+    H0 : float
+        Hubble constant in km/s/Mpc.
+    UNITLENGTH_IN_CM : float
+        Unit length in cm.
+    UNIT_D : float, optional; default: 3.0856775814671917e24
+        Unit distance in cm in the StePS simulator.
     '''
-    #Setting up the units of distance and time
-    UNIT_T=47.14829951063323 #Unit time in Gy
-    UNIT_V=20.738652969925447 #Unit velocity in km/s
-    UNIT_D=3.0856775814671917e24#=1Mpc Unit distance in cm (in the StePS code)
     #Reading the input data
     particle_data = np.fromfile(infile, count=-1, sep='\t', dtype=np.float64)
     particle_data = particle_data.reshape(int(len(particle_data)/7),7)
