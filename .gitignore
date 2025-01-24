@@ -8,7 +8,7 @@ StePS/Makefile
 StePS_IC/src/glio/
 
 # Ignore __pycache__ directories
-StePS_IC/src/__pycache__/
+__pycache__/
 
 #ignore the .vscode directory
 .vscode/

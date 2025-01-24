@@ -29,7 +29,7 @@ from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 
 from pynverse import inversefunc
 
-from write_ICparamfile import *
+from StePS_IC.stepsic.writeparamfile import *
 from inputoutput import *
 from powerspec import *
 from stereographic import *
@@ -292,10 +292,21 @@ def load_glass(params):
     -----------
     params : dict
         Dictionary containing the parameter list of a StePS simulation.
+
+    Returns:
+    --------
+    input_glass : ndarray
+        The input glass array containing the particle positions,
+        placeholder velocities with zeros, and the particle masses.
+
+    int
+        The number of particles in the input glass.
     '''
     print(f'Loading the {params["GLASSFILE"]} input glass file...')
     _, C, _, M = load_snapshot(params['GLASSFILE'])
-    input_glass = np.vstack((np.hstack((C, np.zeros_like(C, dtype=np.float64)).T, M))).T
+    input_glass = np.c_[C, np.zeros_like(C, dtype=np.float64), M]
+    print("...done.")
+    return input_glass, input_glass.shape[0]
     
 
 def main():
@@ -319,7 +330,7 @@ def main():
         generate_camb(params)
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-
+    input_glass, N_part = load_glass(params)
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
 
@@ -328,16 +339,7 @@ if __name__ == "__main__":
 
 
 
-
-#Loading the input glass:
-print("Loading the %s input glass file..." % params['GLASSFILE'])
-glasscoords,glassmasses = Load_snapshot(params['GLASSFILE'])
-input_glass = np.vstack((np.hstack((glasscoords,np.zeros(glasscoords.shape,dtype=np.double))).T,glassmasses)).T
-Npart = len(input_glass)
-del(glasscoords)
-del(glassmasses)
-print("...done.")
-
+#*******************************************************************************#
 #Calculating the total mass, and the average density
 M_tot = np.sum(input_glass[:,6])
 V_sim = 4.0*np.pi/3.0*params['RSIM']**3

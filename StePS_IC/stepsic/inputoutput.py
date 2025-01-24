@@ -61,7 +61,7 @@ def load_snapshot(filename, *, constant_res=False, double_precision=False,
     # HDF5 snapshot
     elif filename.lower().endswith('.hdf5'):
         if not silent:
-            print(f"\tReading the input HDF5 file {filename} ...")
+            print(f"\tReading the input HDF5 files ...")
         # Collect all filenames in the parent directory of `filename` that
         # have a '.hdf5' extension. If there are multiple files, sort them
         # by the integer value in the filename as in `filename.<int>.hdf5`.
@@ -78,19 +78,19 @@ def load_snapshot(filename, *, constant_res=False, double_precision=False,
             if not silent:
                 print(f"\t\tOpening {hdf5_file} ...")
             with h5py.File(hdf5_file, 'r') as f:
-                particleIDs += f['/PartType1/ParticleIDs'][:]
-                coordinates += f['/PartType1/Coordinates'][:]
-                velocities += f['/PartType1/Velocities'][:]
+                particleIDs.append(f['/PartType1/ParticleIDs'][:])
+                coordinates.append(f['/PartType1/Coordinates'][:])
+                velocities.append(f['/PartType1/Velocities'][:])
                 if constant_res:
-                    masses += f['/PartType1/Masses'][:]
+                    masses.append(f['/PartType1/Masses'][:])
                 else:
-                    masses += f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1]
+                    masses.append(f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1])
         if not silent:
             print("\t...done.\n")
-        particleIDs = np.array(particleIDs, dtype=np.uint64)
-        coordinates = np.array(coordinates, dtype=float_dtype)
-        velocities = np.array(velocities, dtype=float_dtype)
-        masses = np.array(masses, dtype=float_dtype)
+        particleIDs = np.concatenate(particleIDs, dtype=np.uint64)
+        coordinates = np.concatenate(coordinates, dtype=float_dtype)
+        velocities = np.concatenate(velocities, dtype=float_dtype)
+        masses = np.concatenate(masses, dtype=float_dtype)
     # (Assume) Gadget-format snapshot
     else:
         if not silent:

@@ -8,8 +8,8 @@
                                                |_|    |___/
 StePS_IC.py - an IC generator python script for STEreographically Projected cosmological Simulations
 
-v1.0.1.0
-Copyright (C) 2018-2024 Gábor Rácz
+v2.0
+Copyright (C) 2018-2025 Gábor Rácz
 	Jet Propulsion Laboratory, California Institute of Technology | 4800 Oak Grove Drive, Pasadena, CA, 91109, USA
 	Department of Physics of Complex Systems, Eotvos Lorand University | Pf. 32, H-1518 Budapest, Hungary
 	Department of Physics & Astronomy, Johns Hopkins University | 3400 N. Charles Street, Baltimore, MD 21218

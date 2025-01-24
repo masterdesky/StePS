@@ -16,6 +16,8 @@
 
 import numpy as np
 
+def interpolate():
+    pass
 
 # Functions for cosmological perturbation theory
 def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
@@ -48,10 +50,10 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
     kk = np.fft.fftfreq(nres) * 2*np.pi/Lbox * nres
     ks = np.fft.rfftfreq(nres) * 2*np.pi/Lbox * nres
     kvec = np.array(np.meshgrid(kk, kk, ks))
-    kmod = np.sqrt(np.sum(kvec**2, axis=0))
+    kmod = np.linalg.norm(kvec, axis=0)
     delta_k = np.fft.rfftn(overdensity_field)
-    xpert = np.zeros(x.shape, dtype=np.float32)
-    v = np.zeros(x.shape, dtype=np.float32)
+    xpert = np.zeros_like(x, dtype=np.float32)
+    v = np.zeros_like(x, dtype=np.float32)
     for i, xi in enumerate(('x', 'y', 'z')):
         psi_i = np.zeros_like(kmod, dtype=complex)
         mask = kmod > 0.0
@@ -62,12 +64,11 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
               f'in units of mean particle separation: {max_disp * nres/Lbox}')
         xpert[i, ...] = x[i, ...] + disp_field
         v[i, ...] = disp_field*growth_rate
-    #Periodic wrapping
+    # Periodic wrapping
     xpert = np.fmod(xpert+Lbox, Lbox)
-    #Converting the velocities from km/s/h to km/s.
+    # Converting the velocities from km/s/h to km/s
     v /= h 
     return xpert, v
-
 
 def second_order_lpt():
     pass
