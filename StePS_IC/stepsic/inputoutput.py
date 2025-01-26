@@ -20,47 +20,63 @@ import os
 import h5py
 import numpy as np
 
-# import pygadgetreader
 from astropy.units import solMass,Mpc,m,s
 
+# import pygadgetreader
 # from past.translation import autotranslate
 # autotranslate(['glio'])
 # import glio
 
-#defining functions
-def load_snapshot(filename, *, constant_res=False, double_precision=False,
-                  silent=False, **kwargs):
-    '''
-    Loads a Gadget-format snapshot of a cosmological simulations from
-    either an ASCII or HDF5 input file.
 
-    Parameters:
-    -----------
-    filename: str
-        Name of the input file
-    constant_res: bool, optional; default: False
-        If True, the snapshot has constant resolution
-    silent: bool, optional; default: False
-        If True, suppresses the output
-    double_precision: bool, optional; default: False
-        If True, uses double precision for the output
-    '''
-    float_dtype = np.float64 if double_precision else np.float32
+class CosmoSnapshot:
+    def __init__(self, silent=False):
+        self.snapshot = None
+        self.silent = silent
 
-    # ASCII snapshot
-    if filename.lower().endswith('.dat'):
-        if not silent:
+    def load_snapshot(self, filename, *, constant_res=False,
+                      double_precision=False, silent=False, **kwargs):
+        '''
+        Loads a Gadget-format snapshot of a cosmological simulations from
+        either an ASCII or HDF5 input file.
+
+        Parameters:
+        -----------
+        filename: str
+            Name of the input file
+        constant_res: bool, optional; default: False
+            If True, the snapshot has constant resolution
+        silent: bool, optional; default: False
+            If True, suppresses the output
+        double_precision: bool, optional; default: False
+            If True, uses double precision for the output
+        '''
+        float_dtype = np.float64 if double_precision else np.float32
+
+        # ASCII snapshot
+        if filename.lower().endswith('.dat'):
+            self.snapshot = self._load_ascii_snapshot(filename, float_dtype)
+        # HDF5 snapshot
+        elif filename.lower().endswith('.hdf5'):
+            self.snapshot = self._load_hdf5_snapshot(filename, float_dtype, constant_res)
+        # Assume Gadget-format snapshot
+        else:
+            self.snapshot = self._load_gadget_snapshot(filename)
+        return self.snapshot
+
+    def _load_ascii_snapshot(self, filename, float_dtype):
+        if not self.silent:
             print(f"\tReading the input ASCII file {filename} ...")
         data = np.loadtxt(filename)
         particleIDs = np.arange(data.shape[0], dtype=np.uint64)
         coordinates = np.array(data[:, :3], dtype=float_dtype)
         velocities = np.array(data[:, 3:6], dtype=float_dtype)
         masses = np.array(data[:, 6], dtype=float_dtype)
-        if not silent:
+        if not self.silent:
             print("\t...done.\n")
-    # HDF5 snapshot
-    elif filename.lower().endswith('.hdf5'):
-        if not silent:
+        return np.c_[particleIDs, coordinates, velocities, masses]
+
+    def _load_hdf5_snapshot(self, filename, float_dtype, constant_res):
+        if not self.silent:
             print(f"\tReading the input HDF5 files ...")
         # Collect all filenames in the parent directory of `filename` that
         # have a '.hdf5' extension. If there are multiple files, sort them
@@ -68,14 +84,14 @@ def load_snapshot(filename, *, constant_res=False, double_precision=False,
         parent_dir = os.path.dirname(filename)
         filenames = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir) if f.endswith('.hdf5')]
         if len(filenames) > 1:
-            if not silent:
+            if not self.silent:
                 print("\tSnapshot is stored in multiple files.")
             filenames.sort(key=lambda x: int(x.split('.')[-2]))
         # Read the particle data from each file and concatenate them in
         # the corresponding arrays
         particleIDs, coordinates, velocities, masses = [], [], [], []
         for hdf5_file in filenames:
-            if not silent:
+            if not self.silent:
                 print(f"\t\tOpening {hdf5_file} ...")
             with h5py.File(hdf5_file, 'r') as f:
                 particleIDs.append(f['/PartType1/ParticleIDs'][:])
@@ -85,26 +101,63 @@ def load_snapshot(filename, *, constant_res=False, double_precision=False,
                     masses.append(f['/PartType1/Masses'][:])
                 else:
                     masses.append(f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1])
-        if not silent:
+        if not self.silent:
             print("\t...done.\n")
         particleIDs = np.concatenate(particleIDs, dtype=np.uint64)
         coordinates = np.concatenate(coordinates, dtype=float_dtype)
         velocities = np.concatenate(velocities, dtype=float_dtype)
         masses = np.concatenate(masses, dtype=float_dtype)
-    # (Assume) Gadget-format snapshot
-    else:
-        if not silent:
+        return np.c_[particleIDs, coordinates, velocities, masses]
+
+    def _load_gadget_snapshot(self, filename):
+        if not self.silent:
             print(f"\tReading the input Gadget file {filename} ...")
         particleIDs = pygadgetreader.readsnap(filename, 'IDs', 'dm')
         coordinates = pygadgetreader.readsnap(filename, 'pos', 'dm')
         velocities = pygadgetreader.readsnap(filename, 'vel', 'dm')
         masses = pygadgetreader.readsnap(filename, 'mass', 'dm')
-        if not silent:
+        if not self.silent:
             print("\t...done.\n")
-    return particleIDs, coordinates, velocities, masses
+        return np.c_[particleIDs, coordinates, velocities, masses]
+
+class CosmoIC:
+    def __init__(self, snapshot, silent=False):
+        self.snapshot = snapshot
+        self.silent = silent
+
+    def periodic_shift(self, params):
+        '''TODO
+        '''
+        print("Periodically shifting the input glass...")
+        for i, vi in enumerate(['VOIX', 'VOIY', 'VOIZ']):
+            self.snapshot[:, i] += params[vi]
+        self.snapshot[:, :3] = self.snapshot[:, :3] % params['LBOX']
+        print("...done.\n")
+        return self
+
+    def rescale_snapshot_mass(self, params):
+        '''TODO
+        '''
+        M_tot = np.sum(self.snapshot[:, 6])
+        V_sim = 4.0*np.pi/3.0*params['RSIM']**3
+        omega_m_mean = (M_tot/V_sim) / params['RHO_CRIT']
+        if np.isclose(omega_m_mean, params['OMEGAM'], rtol=1e-9):
+            print(f"The cosmological Omega_m parameter, calculated from the" \
+                  f"particle masses: Omega_m={omega_m_mean:.6f}")
+        else:
+            self.snapshot[:, 6] = self.snapshot[:, 6] * params['OMEGAM'] / omega_m_mean
+            print(f"The particle masses were rescaled to fit with the cosmological" \
+                  f"parameter Omega_m={params['OMEGAM']}")
+        return self
+
+
+
+
 
 
 def Load_params_from_HDF5_snap(filename):
+    '''TODO
+    '''
     if not filename.lower().endswith('.hdf5'):
         raise Exception('Error: input file {filename} is not in hdf5 format!')
     with h5py.File(filename, 'r') as f:
