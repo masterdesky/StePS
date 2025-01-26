@@ -70,7 +70,7 @@ def linear_growth_function(z, H0, omega_m, omega_b, omega_l, s8, ns, DE, DE_para
         print(f'Initial normalized linear growth: D(z={z:.2f})/D(z=0) = {Dlin:.2e}')
     return Dlin
 
-def linear_spectrum_camb(
+def camb_linear_spectrum(
         z=127, H0=73.0, ombh2=0.024, omch2=0.1092445, omega_k=0.0, ns=1.0,
         kmin=0.01, kmax=1.0, npoints=1024, sigma8=None, DE='Lambda', DE_params=None):
     '''

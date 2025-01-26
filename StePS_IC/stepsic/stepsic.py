@@ -29,20 +29,21 @@ from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 
 from pynverse import inversefunc
 
-from StePS_IC.stepsic.writeparamfile import *
-from inputoutput import *
-from powerspec import *
-from stereographic import *
-from perturbation import *
+from .writeparamfile import *
+from .parameters import CosmoParameters
+from .inputoutput import CosmoSnapshot, CosmoIC
+from .powerspec import camb_linear_spectrum
+from .stereographic import *
+from .perturbation import *
 
 
 _VERSION = 'v2.0'
 _YEAR = '2017-2025'
 
-#StePS internal units
-UNIT_T = 47.14829951063323      #Unit time in Gy
-UNIT_V = 20.738652969925447     #Unit velocity in km/s
-UNIT_D = 3.0856775814671917e24  #=1Mpc Unit distance in cm
+# StePS internal units
+UNIT_T = 47.14829951063323      # Unit time in Gy
+UNIT_V = 20.738652969925447     # Unit velocity in km/s
+UNIT_D = 3.0856775814671917e24  # =1Mpc Unit distance in cm
 
 
 def header(N1:int = 97, N2:int = 66):
@@ -79,185 +80,6 @@ def header(N1:int = 97, N2:int = 66):
     print(f'{b(N1)}\n{T(art, N1)}\n{b(N1)}\n{T(cop, N1)}\n{b(N1)}')
     print(f'\n{b(N2)}\n{T(war, N2)}\n{b(N2)}')
 
-def process_cosmo_params(params):
-    '''
-    Print all cosmological parameters found in the parameter list.
-
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing the parameter list of a StePS simulation.
-    '''
-    params['OMMH2'] = params['OMEGAM'] * (params['H0']/100.0)**2
-    params['OMCH2'] = (params['OMEGAM'] - params['OMEGAB']) * (params['H0']/100.0)**2
-    params['OMK']   = 1.0 - params['OMEGAM'] - params['OMEGAL']
-    params['OMBH2'] = params['OMEGAB'] * (params['H0']/100.0)**2
-    params['SCALE'] = 1.0/(params['REDSHIFT']+1.0)
-
-    # Print cosmological parameters
-    text = dedent(f'''
-    Cosmological Parameters:
-    ------------------------
-    Omega_m:            {params['OMEGAM']:.6f}      (Ommh2={params['OMMH2']:.6f}; Omch2={params['OMCH2']:.6f})
-    Omega_lambda:       {params['OMEGAL']:.6f}
-    Omega_k:            {params['OMK']:.6f}
-    Omega_b:            {params['OMEGAB']:.6f}      (Ombh2={params['OMBH2']:.6f})
-    H0:                 {params['H0']:.3f} km/s/Mpc
-    Redshift:           {params['REDSHIFT']:.3f}    (a={params['SCALE']:.6f})
-    Sigma8:             {params['SIGMA8']:.3f}
-    Dark energy model:  {params['DARKENERGYMODEL']}
-    ''')
-    print(text)
-    # Supplementary log messages and operations
-    if params['DARKENERGYMODEL'] == 'Lambda':
-        print('\n')
-    elif not params['USECAMBINPUTSPECTRUM']:
-        raise ValueError('Error: For non-standard dark energy parametrization '\
-                         'USECAMBINPUTSPECTRUM has to be set True!\nExiting.\n')
-    elif params['DARKENERGYMODEL'] == 'w0':
-        print(f'w = {params['DARKENERGYPARAMS'][0]:.3f}\n')
-    elif params['DARKENERGYMODEL'] == 'CPL':
-        print(f'w0 = {params['DARKENERGYPARAMS'][0]:.3f}\n\
-                wa = {params['DARKENERGYPARAMS'][1]:.3f}\n')
-    else:
-        raise ValueError('Error: unkown dark energy parametrization!\nExiting.\n')
-    params['INPUTSPECTRUM_UNITLENGTH_IN_CM'] = np.float64(params['INPUTSPECTRUM_UNITLENGTH_IN_CM'])
-    return params
-
-def process_ic_params(params):
-    '''
-    Print all initial condition parameters found in the parameter list.
-
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing the parameter list of a StePS simulation.
-    '''
-
-    # Print initial condition parameters
-    text = dedent(f'''
-    IC parameters:
-    --------------
-    Lbox:                           {params['LBOX']:.3f} Mpc
-    Rsim:                           {params['RSIM']:.3f} Mpc
-    VOI_x:                          {params['VOIX']:.3f} Mpc
-    VOI_y:                          {params['VOIY']:.3f} Mpc
-    VOI_z:                          {params['VOIZ']:.3f} Mpc
-    Seed:                           {params['SEED']:d}
-    Spheremode:                     {params['SPHEREMODE']:d}
-    WhichSpectrum:                  {params['WHICHSPECTRUM']:d}
-    FileWithInputSpectrum:          {params['FILEWITHINPUTSPECTRUM']}
-    InputSpectrum_UnitLength_in_cm: {params['INPUTSPECTRUM_UNITLENGTH_IN_CM']:.3e}
-    ReNormalizeInputSpectrum:       {params['RENORMALIZEINPUTSPECTRUM']:d}
-    ShapeGamma:                     {params['SHAPEGAMMA']:.3f}
-    PrimordialIndex:                {params['PRIMORDIALINDEX']:.3f}
-    Ngrid samples:                  {params['NGRIDSAMPLES']:d}
-    GlassFile:                      {params['GLASSFILE']}
-    OutDir:                         {params['OUTDIR']}
-    FileBase:                       {params['FILEBASE']}
-    Comoving IC:                    {params['COMOVINGIC']}
-    Number of MPI tasks:            {params['MPITASKS']:d}
-    H0 independent units:           {params['HINDEPENDENTUNITS']:d}
-    ''')
-    print(text)
-    # Supplementary log messages and operations
-    params['UNITLENGTH_IN_CM'] = np.float64(params['UNITLENGTH_IN_CM'])
-    params['UNITMASS_IN_G'] = np.float64(params['UNITMASS_IN_G'])
-    params['UNITVELOCITY_IN_CM_PER_S'] = np.float64(params['UNITVELOCITY_IN_CM_PER_S'])
-    if params['COMOVINGIC'] not in (0, 1):
-        raise ValueError('Error: the COMOVINGIC parameter should be 1 or 0!\nExiting.')
-    return params
-
-def process_icgen_parameters(params):
-    '''
-    Print all parameters related to the initial conditions generation.
-
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing the parameter list of a StePS simulation.
-    '''
-
-    # --- Validate IC Generator Type ---
-    generator_map = {
-        0: '2LPTic',
-        1: 'NgenIC',
-        2: 'L-genIC'
-    }
-    icgen_type = params.get('ICGENERATORTYPE')
-    if icgen_type not in generator_map:
-        raise ValueError(f"Error: unknown IC generator type: {icgen_type}\nExiting.")
-    generator_str = generator_map[icgen_type]
-
-    # --- Validate Executable ---
-    if not os.path.exists(params['EXECUTABLE']):
-        raise FileNotFoundError(f"Error: the executable '{params['EXECUTABLE']}' "\
-                                 "does not exist.\nExiting.")
-
-    # --- Validate Binning Mode ---
-    bin_mode_map = {
-        0: 'Constant size binning in the "omega" compact coordinate.',
-        1: 'Constant shell volumes in the compact space.'
-    }
-    bin_mode = params.get('BIN_MODE')
-    if bin_mode not in bin_mode_map:
-        raise ValueError(f"Error: unknown binning mode {bin_mode}!\nExiting.")
-    bin_mode_str = bin_mode_map[bin_mode]
-
-    # --- Validate Output Format & Precision ---
-    output_format_map = {
-        0: ("ASCII",   "(N/A for ASCII)"),
-        1: ("Gadget",  "(N/A for Gadget)"),
-        2: ("HDF5",    None),  # This one requires a precision lookup
-    }
-    precision_map = {
-        0: "32-bit",
-        1: "64-bit"
-    }
-    output_format = params.get('OUTPUTFORMAT')
-    if output_format not in output_format_map:
-        raise ValueError(f"Error: unknown OUTPUTFORMAT value {output_format}!\nExiting.")
-    output_format_str, fixed_precision_str = output_format_map[output_format]
-
-    if fixed_precision_str is not None:
-        # This format ignores OUTPUTPRECISION or uses a fixed notion
-        output_precision_str = fixed_precision_str
-    else:
-        # For formats that require an actual precision check (e.g. HDF5)
-        output_precision = params.get('OUTPUTPRECISION')
-        if output_precision not in precision_map:
-            raise ValueError(f"Error: unknown OUTPUTPRECISION value {output_precision}!\nExiting.")
-        output_precision_str = precision_map[output_precision]
-
-    # --- Phase Shift ---
-    if params.get('PHASE_SHIFT_ENABLED', 0) == 1:
-        phase_shift_str = f"{params['PHASE_SHIFT']:.2f} degrees"
-    else:
-        phase_shift_str = "Disabled"
-
-    # --- Local Execution ---
-    # The original code used 1 for local, 0 or 2 for remote.
-    local_execution = params.get('LOCAL_EXECUTION')
-    if local_execution == 1:
-        execution_str = "local"
-    elif local_execution in (0, 2):
-        execution_str = "remote"
-    else:
-        raise ValueError(f"Error: unknown LOCAL_EXECUTION value {local_execution}!\nExiting.")
-
-    text = dedent(f"""
-    IC generator parameters:
-    ------------------------
-    IC generator:                   {generator_str}
-    Executable:                     {params['EXECUTABLE']}
-    Binning mode:                   {bin_mode_str}
-    Output format:                  {output_format_str}
-    Output precision:               {output_precision_str}
-    Phase shift:                    {phase_shift_str}
-    Execution mode:                 {execution_str}
-    """)
-    print(text)
-    return params
 
 def generate_camb(params):
     '''
@@ -267,14 +89,12 @@ def generate_camb(params):
     -----------
     params : dict
         Dictionary containing the parameter list of a StePS simulation.
-    '''
-    params['RENORMALIZEINPUTSPECTRUM'] = 0
-    
+    '''    
     print('Calculating input spectrum with CAMB...')
     kmin    = 1.0*np.pi/params['LBOX']
     kmax    = 100.0
     npoints = 2048
-    kh, pk  = linear_spectrum_camb(
+    kh, pk  = camb_linear_spectrum(
         H0=params['H0'], ombh2=params['OMBH2'], omch2=params['OMCH2'], omk=params['OMK'],
         ns=params['PRIMORDIALINDEX'], redshift=params['REDSHIFT'],
         kmin=kmin, kmax=kmax, npoints=npoints, sigma8=params['SIGMA8'],
@@ -282,55 +102,39 @@ def generate_camb(params):
     Pk3 = np.vstack((np.log10(kh), np.log10(pk*kh**3/(2*np.pi**2)))).T
     np.savetxt(params['FILEWITHINPUTSPECTRUM'], Pk3)
     print('...done.')
-    return params
 
-def load_glass(params):
-    '''
-    Load the input glass file.
-
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing the parameter list of a StePS simulation.
-
-    Returns:
-    --------
-    input_glass : ndarray
-        The input glass array containing the particle positions,
-        placeholder velocities with zeros, and the particle masses.
-
-    int
-        The number of particles in the input glass.
-    '''
-    print(f'Loading the {params["GLASSFILE"]} input glass file...')
-    _, C, _, M = load_snapshot(params['GLASSFILE'])
-    input_glass = np.c_[C, np.zeros_like(C, dtype=np.float64), M]
-    print("...done.")
-    return input_glass, input_glass.shape[0]
-    
 
 def main():
     start = time.time()
     header(N1=97, N2=66)
-    # Reading in input parameterfile in yaml format
+    # Reading in input parameter file
     if len(sys.argv) != 2:
         raise ValueError('Error: missing yaml file!\nUsage: ./StePS_IC.py <input yaml file>\nExiting.')
-    with open(sys.argv[1], 'r') as f:
-        print(f'Reading the {sys.argv[1]} paramfile...\n')
-        params = yaml.safe_load(f)
-    # Processing simulation parameters
-    process_cosmo_params(params)
-    process_ic_params(params)
-    process_icgen_parameters(params)
+    params = CosmoParameters().load_parameters(filename=sys.argv[1])
     # Calculating the density from the cosmological parameters in simulation units
     params['RHO_CRIT'] = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
     params['RHO_MEAN'] = params['OMEGAM']*params['RHO_CRIT']
     # Generating the initial power spectrum with CAMB
     if params['USECAMBINPUTSPECTRUM']:
         generate_camb(params)
+        params['RENORMALIZEINPUTSPECTRUM'] = 0
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    input_glass, N_part = load_glass(params)
+    input_glass = CosmoSnapshot().load_snapshot(
+        filename=params['GLASSFILE'], return_ids=False, return_vel=False)
+    N_part = input_glass.shape[0]
+    # Preprocess the input glass to prepare for the IC generation
+    # Periodically shift the particles to the center of the box and
+    # rescale its masses to the mean density of the universe
+    cosmoic = CosmoIC(snapshot=input_glass)
+    cosmoic = cosmoic.rescale_snapshot_mass(params)
+    cosmoic = cosmoic.periodic_shift(params)
+    input_glass = cosmoic.snapshot
+    # Calculate the mass list and the total mass in the box
+    M_list = np.unique(input_glass[:,6])
+    print(f"Number of different masses:\t{len(M_list)}")
+    M_total = params['RHO_MEAN']*params['LBOX']**3
+    
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
 
@@ -340,36 +144,6 @@ if __name__ == "__main__":
 
 
 #*******************************************************************************#
-#Calculating the total mass, and the average density
-M_tot = np.sum(input_glass[:,6])
-V_sim = 4.0*np.pi/3.0*params['RSIM']**3
-OmegaM_mean_input = (M_tot/V_sim)/rho_crit
-if np.absolute(OmegaM_mean_input/params['OMEGAM']-1.0) < 1e-9:
-    print("\nThe cosmological Omega_m parameter, calculated from the particle masses:\tOmega_m=%f\n" % (OmegaM_mean_input))
-else:
-    input_glass[:,6] = input_glass[:,6] * params['OMEGAM'] / OmegaM_mean_input
-    print("\nThe particle masses were rescaled to fit with the cosmological parameter Omega_m=%f\n" % (params['OMEGAM']))
-original_glass = np.copy(input_glass)
-#Calculating the Mass list:
-Mass_list = np.unique(input_glass[:,6])
-print("Number of different masses:\t%i\n" % len(Mass_list))
-M_tot_box = rho_mean*params['LBOX']**3
-
-
-#Periodically shifting the input glass:
-print("Periodically shifting the input glass...")
-input_glass[:,0] = input_glass[:,0]+params['VOIX']
-input_glass[:,1] = input_glass[:,1]+params['VOIY']
-input_glass[:,2] = input_glass[:,2]+params['VOIZ']
-for i in range(0, Npart):
-    for k in range(0,3):
-        if input_glass[i,k]<0:
-            input_glass[i,k] += params['LBOX']
-        if input_glass[i,k]>params['LBOX']:
-            input_glass[i,k] -= params['LBOX']
-print("...done.\n")
-
-
 #Converting the input glass to gadget format:
 if params['LOCAL_EXECUTION'] < 2:
     print("Converting the input glass to Gadget format...")
