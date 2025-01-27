@@ -16,10 +16,71 @@
 
 import numpy as np
 
-def interpolate():
-    pass
 
-# Functions for cosmological perturbation theory
+def interpolate(x, Lbox, disp_field):
+    '''
+    Perform trilinear interpolation of the displacement field onto
+    particle positions.
+    
+    Parameters:
+    -----------
+    x : ndarray of shape (N, 3)
+        Particle positions.
+    Lbox : float
+        Box size in Mpc/h.
+    disp_field : ndarray of shape (N, N, N)
+        Displacement field.
+    
+    Returns:
+    --------
+    disp_field_interp : ndarray of shape (N, 3)
+        Interpolated displacement field at particle positions.
+    '''
+    nmesh = disp_field.shape[0]
+
+    u = x[:, 0] / Lbox * nmesh
+    v = x[:, 1] / Lbox * nmesh
+    w = x[:, 2] / Lbox * nmesh
+
+    i = np.floor(u).astype(int)
+    j = np.floor(v).astype(int)
+    k = np.floor(w).astype(int)
+
+    u -= i
+    v -= j
+    w -= k
+
+    i = i % nmesh
+    j = j % nmesh
+    k = k % nmesh
+
+    ii = (i + 1) % nmesh
+    jj = (j + 1) % nmesh
+    kk = (k + 1) % nmesh
+
+    # Calculate the trilinear interpolation coefficients for each
+    # of the 8 vertices of the cube the particle is in
+    f1 = (1 - u) * (1 - v) * (1 - w)
+    f2 = (1 - u) * (1 - v) * w
+    f3 = (1 - u) * v * (1 - w)
+    f4 = (1 - u) * v * w
+    f5 = u * (1 - v) * (1 - w)
+    f6 = u * (1 - v) * w
+    f7 = u * v * (1 - w)
+    f8 = u * v * w
+
+    disp_field_interp = (
+        disp_field[i, j, k] * f1[:, None] +
+        disp_field[i, j, kk] * f2[:, None] +
+        disp_field[i, jj, k] * f3[:, None] +
+        disp_field[i, jj, kk] * f4[:, None] +
+        disp_field[ii, j, k] * f5[:, None] +
+        disp_field[ii, j, kk] * f6[:, None] +
+        disp_field[ii, jj, k] * f7[:, None] +
+        disp_field[ii, jj, kk] * f8[:, None]
+    )
+    return disp_field_interp
+
 def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
     '''
     Perform the Zel'dovich approximation to compute particle positions
@@ -31,24 +92,21 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
         Initial unperturbed particle positions.
     Lbox : float
         Box size in Mpc/h.
-    overdensity_field : ndarray of shape (N, N, N)
+    overdensity_field : ndarray of shape (M, M, M)
         Target overdensity field (real field).
     growth_rate : float
         Time derivative of the growth factor D(t) in km/s/Mpc units.
     
     Returns:
     --------
-    positions : ndarray of shape (N, 3)
+    xpert : ndarray of shape (N, 3)
         Updated particle positions.
-    velocities : ndarray of shape (N, 3)
+    v : ndarray of shape (N, 3)
         Updated particle velocities.
     '''
-    # TODO: Köbös rácson elmozdulásmező
-    # 3D rácspontok (ezek) között kiinterpolálom ezt a mezőt
-    # Interpoláció választása CIC
-    nres = overdensity_field.shape[0]
-    kk = np.fft.fftfreq(nres) * 2*np.pi/Lbox * nres
-    ks = np.fft.rfftfreq(nres) * 2*np.pi/Lbox * nres
+    nmesh = overdensity_field.shape[0]
+    kk = np.fft.fftfreq(nmesh) * 2*np.pi/Lbox * nmesh
+    ks = np.fft.rfftfreq(nmesh) * 2*np.pi/Lbox * nmesh
     kvec = np.array(np.meshgrid(kk, kk, ks))
     kmod = np.linalg.norm(kvec, axis=0)
     delta_k = np.fft.rfftn(overdensity_field)
@@ -61,9 +119,10 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
         disp_field = np.fft.irfftn(psi_i)
         max_disp = np.max(disp_field)
         print(f'Maximal \'{xi}\' displacement: {max_disp*1000} kpc/h; '\
-              f'in units of mean particle separation: {max_disp * nres/Lbox}')
-        xpert[i, ...] = x[i, ...] + disp_field
-        v[i, ...] = disp_field*growth_rate
+              f'in units of mean particle separation: {max_disp * nmesh/Lbox}')
+        disp_field_interp = interpolate(x, Lbox, disp_field)
+        xpert[:, i] = x[:, i] + disp_field_interp
+        v[:, i] = disp_field_interp * growth_rate
     # Periodic wrapping
     xpert = np.fmod(xpert+Lbox, Lbox)
     # Converting the velocities from km/s/h to km/s
