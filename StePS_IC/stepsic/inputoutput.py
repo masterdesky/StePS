@@ -1,7 +1,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2024 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz                                         #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -13,8 +13,6 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
-
-# Functions for reading and writing particle data
 
 import os
 import h5py
@@ -28,40 +26,32 @@ from astropy.units import solMass,Mpc,m,s
 # import glio
 
 
-class CosmoSnapshot:
+class SnapshotIO:
     def __init__(self, silent=False):
-        self.snapshot = None
         self.silent = silent
 
-    def load_snapshot(self, filename, *, constant_res=False,
-                      double_precision=False, silent=False, **kwargs):
+    def load_snapshot(self, filename, *, constant_res=False, double_precision=False):
         '''
-        Loads a Gadget-format snapshot of a cosmological simulations from
-        either an ASCII or HDF5 input file.
+        Loads a Gadget-format snapshot of a cosmological simulation from
+        either an ASCII, HDF5 or Gadget-format input file.
 
         Parameters:
         -----------
-        filename: str
-            Name of the input file
-        constant_res: bool, optional; default: False
-            If True, the snapshot has constant resolution
-        silent: bool, optional; default: False
-            If True, suppresses the output
-        double_precision: bool, optional; default: False
-            If True, uses double precision for the output
+        filename : str
+            Name of the input file.
+        constant_res : bool, optional; default: False
+            If True, the snapshot is assumed to have constant mass resolution.
+        double_precision : bool, optional; default: False
+            If True, the snapshot is assumed to have double precision.
         '''
         float_dtype = np.float64 if double_precision else np.float32
 
-        # ASCII snapshot
         if filename.lower().endswith('.dat'):
-            self.snapshot = self._load_ascii_snapshot(filename, float_dtype)
-        # HDF5 snapshot
+            return self._load_ascii_snapshot(filename, float_dtype)
         elif filename.lower().endswith('.hdf5'):
-            self.snapshot = self._load_hdf5_snapshot(filename, float_dtype, constant_res)
-        # Assume Gadget-format snapshot
+            return self._load_hdf5_snapshot(filename, float_dtype, constant_res)
         else:
-            self.snapshot = self._load_gadget_snapshot(filename)
-        return self
+            return self._load_gadget_snapshot(filename)
 
     def _load_ascii_snapshot(self, filename, float_dtype):
         if not self.silent:
@@ -78,17 +68,12 @@ class CosmoSnapshot:
     def _load_hdf5_snapshot(self, filename, float_dtype, constant_res):
         if not self.silent:
             print(f"\tReading the input HDF5 files ...")
-        # Collect all filenames in the parent directory of `filename` that
-        # have a '.hdf5' extension. If there are multiple files, sort them
-        # by the integer value in the filename as in `filename.<int>.hdf5`.
         parent_dir = os.path.dirname(filename)
         filenames = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir) if f.endswith('.hdf5')]
         if len(filenames) > 1:
             if not self.silent:
                 print("\tSnapshot is stored in multiple files.")
             filenames.sort(key=lambda x: int(x.split('.')[-2]))
-        # Read the particle data from each file and concatenate them in
-        # the corresponding arrays
         particleIDs, coordinates, velocities, masses = [], [], [], []
         for hdf5_file in filenames:
             if not self.silent:
@@ -119,38 +104,6 @@ class CosmoSnapshot:
         if not self.silent:
             print("\t...done.\n")
         return np.c_[particleIDs, coordinates, velocities, masses]
-
-    def rescale_snapshot_mass(self, params):
-        '''TODO
-        '''
-        M_tot = np.sum(self.snapshot[:, 6])
-        V_sim = 4.0*np.pi/3.0*params['RSIM']**3
-        omegam_box = (M_tot/V_sim) / params['RHO_CRIT']
-        if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
-            print(f"The cosmological Omega_m parameter, calculated from the" \
-                  f"particle masses: Omega_m={omegam_box:.6f}")
-        else:
-            self.snapshot[:, 6] = self.snapshot[:, 6] * params['OMEGAM'] / omegam_box
-            print(f"The particle masses were rescaled to fit with the cosmological" \
-                  f"parameter Omega_m={params['OMEGAM']}")
-            
-        self.M_list = np.unique(self.snapshot[:, 6])
-        print(f"Number of different masses:\t{len(self.M_list)}")
-        self.M_box = params['RHO_MEAN']*params['LBOX']**3
-        return self
-
-    def periodic_shift(self, params, cidx=(1, 2, 3)):
-        '''TODO
-        '''
-        print("Periodically shifting the input glass...")
-        for i, vi in enumerate(['VOIX', 'VOIY', 'VOIZ']):
-            self.snapshot[:, i] += params[vi]
-        self.snapshot[:, cidx] = self.snapshot[:, cidx] % params['LBOX']
-        print("...done.\n")
-        return self
-
-
-
 
 
 def Load_params_from_HDF5_snap(filename):

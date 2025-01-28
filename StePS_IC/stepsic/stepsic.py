@@ -30,10 +30,11 @@ from pynverse import inversefunc
 
 from .writeparamfile import *
 from .parameters import CosmoParameters
-from .inputoutput import CosmoSnapshot
+from .inputoutput import SnapshotIO
+from .cosmology import CosmoSnapshot
 from .powerspec import camb_linear_spectrum
 from .stereographic import *
-from .perturbation import *
+from .perturbation import zeldovich
 
 
 _VERSION = 'v2.0'
@@ -118,16 +119,14 @@ def main():
         params['RENORMALIZEINPUTSPECTRUM'] = 0
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    cosmoic = CosmoSnapshot().load_snapshot(
-        filename=params['GLASSFILE'], return_ids=False, return_vel=False)
+    cosmoic = CosmoSnapshot(SnapshotIO().load_snapshot(params['GLASSFILE']))
     # Preprocess the input glass to prepare for the IC generation.
     # Rescale its masses to match the mean density of the universe and
     # periodically shift the particles to the center of the box.
-    cosmoic = cosmoic.rescale_snapshot_mass(params)
-    cosmoic = cosmoic.periodic_shift(params)
-    input_glass = cosmoic.snapshot
-    N_part = input_glass.shape[0]
-    
+    cosmoic.rescale_snapshot_mass(params)
+    cosmoic.periodic_shift(params)
+    if params['NMESH'] == 0:
+        cosmoic.create_nsample_mass_lut(params)
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
 
@@ -148,21 +147,7 @@ if params['LOCAL_EXECUTION'] < 2:
     print("...done.\n")
 
 if params['NMESH'] == 0:
-    #Calculating the Nsample-Mass function:
-    Nsample_func = np.zeros((len(Mass_list),2))
-    Nsample_func[:,0] = Mass_list[:]
-    Nsample_func[:,1] = np.uint32(np.cbrt(M_tot_box/Mass_list[:]))
-    Nsample_tab = np.zeros(params['NGRIDSAMPLES'],dtype=np.uint32)
-    Mass_tab = np.zeros(params['NGRIDSAMPLES'],dtype=np.uint32)
-    delta_Nsample = np.uint32(np.ceil(len(Mass_list)/params['NGRIDSAMPLES']))
-    print("The generated Nsample list:")
-    print("ID\tNsample\tMass(in 10e11Msol)")
-    Nsample_tab[len(Nsample_tab)-1] = Nsample_func[0,1]
-    print("%i\t%i\t%e" % (len(Nsample_tab)-1, Nsample_tab[len(Nsample_tab)-1], Nsample_func[0,0]))
-    for i in range(len(Nsample_tab)-2, -1, -1):
-        Nsample_tab[i] = Nsample_func[len(Nsample_func)-1-i*delta_Nsample,1]
-        Mass_tab[i] = Nsample_func[len(Nsample_func)-1-i*delta_Nsample,0]
-        print("%i\t%i\t%e" % (i, Nsample_tab[i], Mass_tab[i]))
+
     #generating paramfiles
     paramfile_name=len(Nsample_tab)*[None]
     if params['LOCAL_EXECUTION'] < 2:
