@@ -61,7 +61,7 @@ class CosmoSnapshot:
         # Assume Gadget-format snapshot
         else:
             self.snapshot = self._load_gadget_snapshot(filename)
-        return self.snapshot
+        return self
 
     def _load_ascii_snapshot(self, filename, float_dtype):
         if not self.silent:
@@ -120,36 +120,34 @@ class CosmoSnapshot:
             print("\t...done.\n")
         return np.c_[particleIDs, coordinates, velocities, masses]
 
-class CosmoIC:
-    def __init__(self, snapshot, silent=False):
-        self.snapshot = snapshot
-        self.silent = silent
-
-    def periodic_shift(self, params):
-        '''TODO
-        '''
-        print("Periodically shifting the input glass...")
-        for i, vi in enumerate(['VOIX', 'VOIY', 'VOIZ']):
-            self.snapshot[:, i] += params[vi]
-        self.snapshot[:, :3] = self.snapshot[:, :3] % params['LBOX']
-        print("...done.\n")
-        return self
-
     def rescale_snapshot_mass(self, params):
         '''TODO
         '''
         M_tot = np.sum(self.snapshot[:, 6])
         V_sim = 4.0*np.pi/3.0*params['RSIM']**3
-        omega_m_mean = (M_tot/V_sim) / params['RHO_CRIT']
-        if np.isclose(omega_m_mean, params['OMEGAM'], rtol=1e-9):
+        omegam_box = (M_tot/V_sim) / params['RHO_CRIT']
+        if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
             print(f"The cosmological Omega_m parameter, calculated from the" \
-                  f"particle masses: Omega_m={omega_m_mean:.6f}")
+                  f"particle masses: Omega_m={omegam_box:.6f}")
         else:
-            self.snapshot[:, 6] = self.snapshot[:, 6] * params['OMEGAM'] / omega_m_mean
+            self.snapshot[:, 6] = self.snapshot[:, 6] * params['OMEGAM'] / omegam_box
             print(f"The particle masses were rescaled to fit with the cosmological" \
                   f"parameter Omega_m={params['OMEGAM']}")
+            
+        self.M_list = np.unique(self.snapshot[:, 6])
+        print(f"Number of different masses:\t{len(self.M_list)}")
+        self.M_box = params['RHO_MEAN']*params['LBOX']**3
         return self
 
+    def periodic_shift(self, params, cidx=(1, 2, 3)):
+        '''TODO
+        '''
+        print("Periodically shifting the input glass...")
+        for i, vi in enumerate(['VOIX', 'VOIY', 'VOIZ']):
+            self.snapshot[:, i] += params[vi]
+        self.snapshot[:, cidx] = self.snapshot[:, cidx] % params['LBOX']
+        print("...done.\n")
+        return self
 
 
 

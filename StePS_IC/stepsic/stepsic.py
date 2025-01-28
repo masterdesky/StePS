@@ -19,7 +19,6 @@
 import os
 import sys
 import time
-import yaml
 import numpy as np
 from subprocess import call
 from textwrap import dedent
@@ -31,7 +30,7 @@ from pynverse import inversefunc
 
 from .writeparamfile import *
 from .parameters import CosmoParameters
-from .inputoutput import CosmoSnapshot, CosmoIC
+from .inputoutput import CosmoSnapshot
 from .powerspec import camb_linear_spectrum
 from .stereographic import *
 from .perturbation import *
@@ -80,7 +79,6 @@ def header(N1:int = 97, N2:int = 66):
     print(f'{b(N1)}\n{T(art, N1)}\n{b(N1)}\n{T(cop, N1)}\n{b(N1)}')
     print(f'\n{b(N2)}\n{T(war, N2)}\n{b(N2)}')
 
-
 def generate_camb(params):
     '''
     Setting the initial power spectrum with CAMB.
@@ -120,20 +118,15 @@ def main():
         params['RENORMALIZEINPUTSPECTRUM'] = 0
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    input_glass = CosmoSnapshot().load_snapshot(
+    cosmoic = CosmoSnapshot().load_snapshot(
         filename=params['GLASSFILE'], return_ids=False, return_vel=False)
-    N_part = input_glass.shape[0]
-    # Preprocess the input glass to prepare for the IC generation
-    # Periodically shift the particles to the center of the box and
-    # rescale its masses to the mean density of the universe
-    cosmoic = CosmoIC(snapshot=input_glass)
+    # Preprocess the input glass to prepare for the IC generation.
+    # Rescale its masses to match the mean density of the universe and
+    # periodically shift the particles to the center of the box.
     cosmoic = cosmoic.rescale_snapshot_mass(params)
     cosmoic = cosmoic.periodic_shift(params)
     input_glass = cosmoic.snapshot
-    # Calculate the mass list and the total mass in the box
-    M_list = np.unique(input_glass[:,6])
-    print(f"Number of different masses:\t{len(M_list)}")
-    M_total = params['RHO_MEAN']*params['LBOX']**3
+    N_part = input_glass.shape[0]
     
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
