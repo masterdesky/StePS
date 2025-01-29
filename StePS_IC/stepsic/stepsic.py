@@ -126,6 +126,9 @@ def main():
     cosmoic.rescale_snapshot_mass(params)
     cosmoic.periodic_shift(params)
     if params['NMESH'] == 0:
+        # If the number of mesh points is not specified, the script will
+        # generate multiple ICs with grids of different resolutions. This
+        # is the standard method to generate ICs for StePS simulations.
         cosmoic.create_nsample_mass_lut(params)
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
@@ -220,13 +223,14 @@ if params['NMESH'] == 0:
 
         print("    ...done.\n    Calculating the displacement field...")
         Disp_field[i,:,:] = X_tmp-input_glass[:,0:3]
-        for j in range(0,Npart):
-            for k in range(0,3):
-                if np.absolute(Disp_field[i,j,k]) >= params['LBOX']/2.0:
-                    if Disp_field[i,j,k]>0:
-                        Disp_field[i,j,k] -= params['LBOX']
-                    else:
-                        Disp_field[i,j,k] += params['LBOX']
+        # for j in range(0,Npart):
+        #     for k in range(0,3):
+        #         if np.absolute(Disp_field[i,j,k]) >= params['LBOX']/2.0:
+        #             if Disp_field[i,j,k]>0:
+        #                 Disp_field[i,j,k] -= params['LBOX']
+        #             else:
+        #                 Disp_field[i,j,k] += params['LBOX']
+        Disp_field % params['LBOX']
         print("    Average displacement: %f Mpc" %  np.mean(np.sqrt(Disp_field[i,:,0]**2 + Disp_field[i,:,1]**2 + Disp_field[i,:,2]**2)))
         print("    Maximal displacement: %f Mpc" % np.max(np.sqrt(Disp_field[i,:,0]**2 + Disp_field[i,:,1]**2 + Disp_field[i,:,2]**2)))
         print("    ...done.\n    Calculating the velocity field...")
