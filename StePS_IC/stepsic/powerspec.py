@@ -20,8 +20,8 @@ import camb
 from colossus.cosmology import cosmology
 
 
-def linear_growth_function(z, H0, omega_m, omega_b, omega_l, s8, ns, DE, DE_params,
-                           silent=True):
+def linear_growth_function(
+        z, H0, omega_m, omega_b, omega_l, s8, ns, de_model, de_params, silent=True):
     '''
     Calculate the linear growth factor D(a) normalized to 1 at a=1.
 
@@ -51,17 +51,17 @@ def linear_growth_function(z, H0, omega_m, omega_b, omega_l, s8, ns, DE, DE_para
         'flat': flat, 'H0': H0, 'Om0': omega_m, 'Ob0': omega_b,
         'sigma8': s8, 'ns': ns, 'Tcmb0': T_cmb
     }
-    if DE == 'Lambda':
+    if de_model == 'Lambda':
         if not flat:
             params.update({'Ode0': omega_l})
         cosmo = cosmology.setCosmology('LCDM', **params)
-    elif DE == 'w0':
-        params.update({'de_model': 'w0', 'w0': DE_params[0]})
+    elif de_model == 'w0':
+        params.update({'de_model': 'w0', 'w0': de_params[0]})
         if not flat:
             params.update({'Ode0': omega_l})
         cosmo = cosmology.setCosmology('wCDM', **params)
-    elif DE == 'CPL':
-        params.update({'de_model': 'w0wa', 'w0': DE_params[0], 'wa': DE_params[1]})
+    elif de_model == 'CPL':
+        params.update({'de_model': 'w0wa', 'w0': de_params[0], 'wa': de_params[1]})
         if not flat:
             params.update({'Ode0': omega_l})
         cosmo = cosmology.setCosmology('w0waCDM', **params)
@@ -71,8 +71,9 @@ def linear_growth_function(z, H0, omega_m, omega_b, omega_l, s8, ns, DE, DE_para
     return Dlin
 
 def camb_linear_spectrum(
-        z=127, H0=73.0, ombh2=0.024, omch2=0.1092445, omega_k=0.0, ns=1.0,
-        kmin=0.01, kmax=1.0, npoints=1024, sigma8=None, DE='Lambda', DE_params=None):
+        z=127, H0=73.0, ombh2=0.024, omch2=0.1092445, omega_k=0.0,
+        As=2.0e-09, ns=1.0, kmin=0.01, kmax=1.0, npoints=1024,
+        sigma8=None, de_model='Lambda', de_params=None):
     '''
     Calculate the linear matter power spectrum using CAMB. The output is
     normalized to the linear growth factor at z=0. The default cosmological
@@ -90,6 +91,8 @@ def camb_linear_spectrum(
         Physical cold dark matter density parameter.
     omega_k : float
         Curvature density parameter.
+    As : float
+        Scalar amplitude of the primordial power spectrum.
     ns : float
         Scalar spectral index.
     kmin : float
@@ -100,26 +103,28 @@ def camb_linear_spectrum(
         Number of wavenumber points.
     sigma8 : float; default=None
         Rescale the linear power spectrum to the given sigma8 value.
-    DE : str
+    de_model : str
         Dark energy model. Options are 'Lambda', 'w0', 'CPL'.
-    DE_params : list or array-like
+    de_params : list or array-like
         Dark energy model parameters. For 'Lambda' and 'w0', it is a single
         element list containing the dark energy equation of state parameter w.
         For 'CPL', it is a two element list containing w and wa.
     '''
     params = camb.CAMBparams()
     params.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2, omk=omega_k)
-    if DE == 'w0':
+    if de_model == 'w0':
+        assert len(de_params) == 1, 'de_params must be a single element list.'
         params.DarkEnergy = camb.dark_energy.DarkEnergyFluid()
-        params.DarkEnergy.set_params(w=DE_params[0])
-    elif DE == 'CPL':
+        params.DarkEnergy.set_params(w=de_params[0])
+    elif de_model == 'CPL':
+        assert len(de_params) == 2, 'de_params must be a two element list.'
         params.DarkEnergy = camb.dark_energy.DarkEnergyFluid()
-        params.DarkEnergy.set_params(w=DE_params[0], wa=DE_params[1])
+        params.DarkEnergy.set_params(w=de_params[0], wa=de_params[1])
     
     # Calculate sigma_8 at z=0
-    params.NonLinear = camb.model.NonLinear_none
-    params.InitPower.set_params(ns=ns)
+    params.InitPower.set_params(As=As, ns=ns)
     params.set_matter_power(redshifts=[0.0], kmax=kmax)
+    params.NonLinear = camb.model.NonLinear_none
     results = camb.get_results(params)
     s8 = results.get_sigma8()
     print(f'Original sigma_8: {s8}')
@@ -129,18 +134,20 @@ def camb_linear_spectrum(
     omega_b = ombh2 / ((H0/100.0)**2)          # Baryonic matter density
     omega_l = 1.0 - omega_k - omega_m          # Dark energy density
     DzD0 = linear_growth_function(
-                z, H0, omega_m, omega_b, omega_l, s8, ns, DE, DE_params)
+                z, H0, omega_m, omega_b, omega_l, s8, ns, de_model, de_params)
     
-    # Calculating the linear P(k) at z=0
+    # Calculating the linear P(k)
     if sigma8 is None:
+        # Rescale the power spectrum to the desired sigma_8 value
+        As_rescaled = As*(sigma8/s8)**2
         params.InitPower.set_params(
-                As=2e-09*(sigma8/s8)**2, ns=ns, nrun=0, nrunrun=0.0, r=0.0,
+                As=As_rescaled, ns=ns, nrun=0, nrunrun=0.0, r=0.0,
                 nt=None, ntrun=0.0, pivot_scalar=0.05, pivot_tensor=0.05,
                 parameterization='tensor_param_rpivot')
-        params.set_matter_power(redshifts=[0.0], kmax=kmax)
+        params.set_matter_power(redshifts=[z], kmax=kmax)
         results = camb.get_results(params)
         s8 = results.get_sigma8()
-        print(f'Rescaled sigma_8: {s8}')
+        print(f'sigma_8 at z={z}: {s8}')
     kh, _, pk = results.get_matter_power_spectrum(
                                 minkh=kmin, maxkh=kmax, npoints=npoints)
     return kh, pk[0]*DzD0**2

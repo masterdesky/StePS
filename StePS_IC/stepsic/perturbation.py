@@ -38,9 +38,7 @@ def interpolate(x, Lbox, disp_field):
     '''
     nmesh = disp_field.shape[0]
 
-    u = x[:, 0] / Lbox * nmesh
-    v = x[:, 1] / Lbox * nmesh
-    w = x[:, 2] / Lbox * nmesh
+    u, v, w = x.T / Lbox * nmesh
 
     i = np.floor(u).astype(int)
     j = np.floor(v).astype(int)
@@ -83,7 +81,7 @@ def interpolate(x, Lbox, disp_field):
 
 def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
     '''
-    Perform the Zel'dovich approximation to compute particle positions
+    Performs the Zel'dovich approximation to compute particle positions
     and velocities.
     
     Parameters:
@@ -96,14 +94,20 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
         Target overdensity field (real field).
     growth_rate : float
         Time derivative of the growth factor D(t) in km/s/Mpc units.
+    h : float
+        Hubble constant in km/s/Mpc units.
     
     Returns:
     --------
     xpert : ndarray of shape (N, 3)
-        Updated particle positions.
+        Updated particle positions with periodic wrapping.
     v : ndarray of shape (N, 3)
-        Updated particle velocities.
+        Updated particle velocities in km/s units.
     '''
+    # Nagyskálás módusok mindig ugyanazok legyenek ugyanarra a seedre
+    # Hermitikus kényszerek
+    # Feltöltése a módusoknak nagyobbtól kisebbek irányába
+    # Fourier térben kell komponenseket generálni
     nmesh = overdensity_field.shape[0]
     kk = np.fft.fftfreq(nmesh) * 2*np.pi/Lbox * nmesh
     ks = np.fft.rfftfreq(nmesh) * 2*np.pi/Lbox * nmesh
@@ -123,11 +127,10 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
         disp_field_interp = interpolate(x, Lbox, disp_field)
         xpert[:, i] = x[:, i] + disp_field_interp
         v[:, i] = disp_field_interp * growth_rate
-    # Periodic wrapping
-    xpert = np.fmod(xpert+Lbox, Lbox)
-    # Converting the velocities from km/s/h to km/s
-    v /= h 
-    return xpert, v
+    return xpert%Lbox, v/h
 
 def second_order_lpt():
+    '''
+    Perform second-order Lagrangian perturbation theory.
+    '''
     pass

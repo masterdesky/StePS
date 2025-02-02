@@ -129,7 +129,7 @@ def main():
         # If the number of mesh points is not specified, the script will
         # generate multiple ICs with grids of different resolutions. This
         # is the standard method to generate ICs for StePS simulations.
-        cosmoic.create_nsample_mass_lut(params)
+        cosmoic.create_mass_nsample_lut(params)
     # End of the script
     print(f'The IC building took {(time.time() - start):.4f} s.')
 
