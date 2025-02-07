@@ -15,80 +15,116 @@
 #*******************************************************************************#
 
 import numpy as np
+from scipy.interpolate import RegularGridInterpolator
 
 
-def interpolate(x, Lbox, disp_field):
-    '''
-    Perform trilinear interpolation of the displacement field onto
-    particle positions.
-    
-    Parameters:
-    -----------
+def interpolate_field(x, field, Lbox):
+    r'''
+    Interpolate a grid-based field onto particle positions using periodic
+    boundaries.
+
+    Parameters
+    ----------
     x : ndarray of shape (N, 3)
-        Particle positions.
+        Particle positions in the simulation box.
+    field : ndarray
+        The grid-based field (e.g., a displacement field) defined on a
+        regular grid.
     Lbox : float
-        Box size in Mpc/h.
-    disp_field : ndarray of shape (N, N, N)
-        Displacement field.
-    
-    Returns:
-    --------
-    disp_field_interp : ndarray of shape (N, 3)
-        Interpolated displacement field at particle positions.
+        The simulation box size.
+
+    Returns
+    -------
+    interp_values : ndarray of shape (N,)
+        Field values interpolated at the particle positions.
     '''
-    nmesh = disp_field.shape[0]
-
-    u, v, w = x.T / Lbox * nmesh
-
-    i = np.floor(u).astype(int)
-    j = np.floor(v).astype(int)
-    k = np.floor(w).astype(int)
-
-    u -= i
-    v -= j
-    w -= k
-
-    i = i % nmesh
-    j = j % nmesh
-    k = k % nmesh
-
-    ii = (i + 1) % nmesh
-    jj = (j + 1) % nmesh
-    kk = (k + 1) % nmesh
-
-    # Calculate the trilinear interpolation coefficients for each
-    # of the 8 vertices of the cube the particle is in
-    f1 = (1 - u) * (1 - v) * (1 - w)
-    f2 = (1 - u) * (1 - v) * w
-    f3 = (1 - u) * v * (1 - w)
-    f4 = (1 - u) * v * w
-    f5 = u * (1 - v) * (1 - w)
-    f6 = u * (1 - v) * w
-    f7 = u * v * (1 - w)
-    f8 = u * v * w
-
-    disp_field_interp = (
-        disp_field[i, j, k] * f1[:, None] +
-        disp_field[i, j, kk] * f2[:, None] +
-        disp_field[i, jj, k] * f3[:, None] +
-        disp_field[i, jj, kk] * f4[:, None] +
-        disp_field[ii, j, k] * f5[:, None] +
-        disp_field[ii, j, kk] * f6[:, None] +
-        disp_field[ii, jj, k] * f7[:, None] +
-        disp_field[ii, jj, kk] * f8[:, None]
+    nmesh = field.shape[0]
+    grid = np.linspace(0, Lbox, nmesh, endpoint=False)
+    interpolator = RegularGridInterpolator(
+        (grid, grid, grid),
+        field,
+        method='linear',
+        bounds_error=False,
+        fill_value=None  # Extrapolate using periodic wrapping if needed
     )
-    return disp_field_interp
+    return interpolator(np.mod(x, Lbox))
 
-def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
+
+def fourier_grid(nmesh, Lbox, hermitian=False):
+    r'''
+    Construct a 3D Fourier space grid for use in cosmological perturbation
+    calculations.
+
+    This function generates a three-dimensional array of wavevector
+    components (`kvec`) and computes the corresponding magnitude (`kmod`)
+    for a cubic grid with `nmesh` points per side within a simulation box
+    of size `Lbox`. These arrays are essential for performing discrete
+    Fourier transforms (FFTs) of simulation fields.
+
+    The grid is constructed using the FFT frequencies:
+    
+    - For the first two dimensions, the full set of FFT frequencies is
+      computed using ``np.fft.fftfreq``.
+    - For the third dimension, if the input field is real-valued (i.e.
+      if Hermitian symmetry is assumed), the reduced set of frequencies
+      is computed using ``np.fft.rfftfreq``.
+    
+    When ``hermitian`` is True, the output grid reflects the storage
+    scheme of a real FFT, and the shape of ``kvec`` is
+    \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh}//2+1)\). Otherwise,
+    a full grid with shape \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh})\)
+    is returned.
+
+    Parameters
+    ----------
+    nmesh : int
+        The number of grid points along each dimension of the mesh.
+    Lbox : float
+        The physical size of the simulation box (e.g., in Mpc/h).
+    hermitian : bool, optional
+        If True, assume the field has Hermitian symmetry (i.e., it is
+        real-valued) and use the reduced FFT along the last dimension.
+        The default is False.
+
+    Returns
+    -------
+    kvec : ndarray
+        A three-dimensional array of wavevector components with shape:
+          - \((3, nmesh, nmesh, nmesh//2+1)\) if ``hermitian`` is True.
+          - \((3, nmesh, nmesh, nmesh)\) if ``hermitian`` is False.
+        Each sub-array corresponds to the \(x\), \(y\), or \(z\) component
+        of the wavevector.
+    kmod : ndarray
+        The magnitude of the wavevector at each grid point, computed as
+        \(\|\mathbf{k}\| = \sqrt{k_x^2 + k_y^2 + k_z^2}\).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> kvec, kmod = fourier_grid(64, 100.0, hermitian=True)
+    >>> kvec.shape
+    (3, 64, 64, 33)
+    >>> kmod.shape
+    (64, 64, 33)
+    '''
+    kk = np.fft.fftfreq(nmesh) * 2 * np.pi / Lbox * nmesh
+    ks = np.fft.rfftfreq(nmesh) * 2 * np.pi / Lbox * nmesh if hermitian else kk
+    kvec = np.array(np.meshgrid(kk, kk, ks, indexing='ij'))
+    kmod = np.linalg.norm(kvec, axis=0)
+    return kvec, kmod
+
+
+def zeldovich(x, Lbox, overdensity_field, dD1, h):
     r'''
     Apply the Zel'dovich approximation to generate perturbed particle
     positions and velocities.
 
-    This function implements the Zel'dovich approximation, a first-order
-    Lagrangian perturbation theory used to set up initial conditions for
-    cosmological N-body simulations. In this approximation, particles
-    are displaced from their initial (Lagrangian) positions, \(\mathbf{q}\),
-    to Eulerian positions, \(\mathbf{x}\), according to
+    This function implements the Zel'dovich approximation—a first-order
+    Lagrangian perturbation theory commonly used to set up initial
+    conditions for cosmological N-body simulations. In this approximation,
+    particles are displaced from their initial (Lagrangian) positions
+    \(\mathbf{q}\) to their Eulerian positions \(\mathbf{x}\) via the
+    displacement field \(\mathbf{\Psi}\):
 
     .. math::
 
@@ -96,13 +132,13 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
 
     where:
     
-    - \(D(t)\) is the linear growth factor,
-    - \(\mathbf{\Psi}(\mathbf{q})\) is the displacement field computed
-      from the density perturbations.
+      - \(D(t)\) is the linear growth factor.
+      - \(\mathbf{\Psi}(\mathbf{q})\) is the displacement field computed
+        from the density perturbations.
 
-    The displacement field is obtained by solving the linearized Poisson
-    equation in Fourier space. Specifically, for each component \(i\) the
-    displacement field in Fourier space is
+    The displacement field is determined by solving the linearized Poisson
+    equation in Fourier space. For each spatial component \(i\), the
+    Fourier-space displacement is computed as
 
     .. math::
 
@@ -111,28 +147,51 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
 
     where:
     
-    - \(\delta(\mathbf{k})\) is the Fourier transform of the real-space
-      overdensity field,
-    - \(k_i\) is the \(i\)-th component of the wavevector,
-    - \(|\mathbf{k}|\) is the magnitude of the wavevector.
+      - \(\delta(\mathbf{k})\) is the Fourier transform of the real-space
+        overdensity field,
+      - \(k_i\) is the \(i\)-th component of the wavevector,
+      - \(|\mathbf{k}|\) is the magnitude of the wavevector.
 
-    The inverse Fourier transform then yields the displacement field
-    \(\mathbf{\Psi}(\mathbf{x})\) in real space. Particle velocities are
-    computed as
+    The function performs the following key steps:
 
-    .. math::
+    1. **Fourier Transform Setup:**
+       - It determines the resolution of the FFT grid from the shape of
+         the input ``overdensity_field``.
+       - It constructs the wavevector arrays by calling the utility
+         function ``fourier_grid()``. For a real field, the grid is built
+         using ``np.fft.fftfreq`` for the first two dimensions and
+         ``np.fft.rfftfreq`` for the third, yielding a k-space array of
+         shape \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh}//2+1)\).
+    
+    2. **Computing the Displacement Field:**
+       - The overdensity field is Fourier-transformed (using ``np.fft.rfftn``)
+         to obtain \(\delta(\mathbf{k})\).
+       - For each spatial axis \(i\), the Fourier-space displacement
+         \(\Psi_i(\mathbf{k})\) is computed with a mask to avoid division
+         by zero at \( |\mathbf{k}| = 0 \).
+       - An inverse FFT (``np.fft.irfftn``) converts the Fourier-space
+         displacement field back to real space.
+    
+    3. **Interpolation and Particle Update:**
+       - The grid-based displacement field is interpolated to the actual
+         particle positions using a suitable interpolation routine (e.g.,
+         a trilinear interpolator).
+       - Particle positions are updated as
 
-        \mathbf{v} = \dot{D}(t) \, \mathbf{\Psi},
+         .. math::
 
-    where \(\dot{D}(t)\) (provided as ``growth_rate``) is the time
-    derivative of the growth factor.
+             \mathbf{x}_{\text{pert}} = \mathbf{x} + \mathbf{\Psi},
 
-    The Fourier transform is performed on a grid defined by
-    ``overdensity_field``. For a real-valued field, Hermitian symmetry
-    allows one to use a reduced FFT along one dimension. Here, the first
-    two dimensions use ``np.fft.fftfreq`` and the third uses
-    ``np.fft.rfftfreq``, resulting in a k-space vector array, ``kvec``,
-    with shape \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh}//2+1)\).
+         and the velocities are computed as
+
+         .. math::
+
+             \mathbf{v} = \dot{D}(t) \, \mathbf{\Psi},
+         
+         where \(\dot{D}(t)\) is provided as ``growth_rate``.
+       - Periodic boundary conditions are enforced by wrapping the updated
+         positions, and the velocities are rescaled by the dimensionless
+         Hubble parameter ``h``.
 
     Parameters
     ----------
@@ -144,13 +203,13 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
         conditions are assumed.
     overdensity_field : ndarray of shape (M, M, M)
         Real-space overdensity field used to generate the displacement
-        field.
-    growth_rate : float
+        field. 
+    dD1 : float
         The time derivative of the linear growth factor, \(\dot{D}(t)\),
         in km/s/Mpc. This is used to compute the particle velocities.
     h : float
-        Dimensionless Hubble parameter, \(h = H_0 / 100\), where \(H_0\)
-        is the value of the Hubble constant in km/s/Mpc.
+        Dimensionless Hubble parameter, \(h = H_0/100\), where \(H_0\) is
+        the Hubble constant in km/s/Mpc.
 
     Returns
     -------
@@ -165,98 +224,50 @@ def zeldovich(x, Lbox, overdensity_field, growth_rate, h):
 
             \mathbf{v} = \dot{D}(t) \, \mathbf{\Psi}.
 
-    Notes
-    -----
-    The function follows these key steps:
-
-    1. **Fourier Transform Setup:**
-       - The resolution of the FFT grid is determined by the shape of
-         ``overdensity_field``.
-       - Wavevector arrays are constructed:
-         - ``kk`` is generated using ``np.fft.fftfreq`` for the first
-           two dimensions.
-         - ``ks`` is generated using ``np.fft.rfftfreq`` for the third
-           dimension.
-       - These arrays are combined via ``np.meshgrid`` to form the 3D
-         k-space vector array ``kvec``, which has a reduced size in the
-         last dimension due to the use of the real FFT.
-
-    2. **Computing the Displacement Field:**
-       - The overdensity field is transformed to Fourier space using
-       ``np.fft.rfftn``, yielding \(\delta(\mathbf{k})\).
-       - For each spatial component (x, y, z), the Fourier-space
-         displacement is computed as:
-
-         .. math::
-
-             \Psi_i(\mathbf{k}) = -i \, \frac{k_i}{|\mathbf{k}|^2} \, \delta(\mathbf{k}),
-
-         with a mask applied to avoid division by zero for \( |\mathbf{k}| = 0 \).
-       - The inverse FFT (``np.fft.irfftn``) converts the displacement
-         field back to real space.
-
-    3. **Interpolation and Particle Update:**
-       - The grid-based displacement field is interpolated to the actual
-         particle positions.
-       - Particle positions are updated according to
-
-         .. math::
-
-             \mathbf{x}_{\text{pert}} = \mathbf{x} + \mathbf{\Psi},
-
-         and the velocities are computed as
-
-         .. math::
-
-             \mathbf{v} = \dot{D}(t) \, \mathbf{\Psi}.
-         
-       - Periodic boundary conditions are enforced by wrapping the
-         positions, and velocities are rescaled by the dimensionless
-         Hubble constant ``h`` for unit consistency.
-
-    4. **Fourier Domain Considerations:**
-       - The use of separate ``kk`` and ``ks`` arrays is due to the
-         Hermitian symmetry inherent in the Fourier transform of real
-         fields: full frequency information is needed for the first two
-         dimensions, while only the non-negative frequencies are stored
-         for the third dimension.
-
     Examples
     --------
     >>> import numpy as np
-    >>> # Define particle positions, box size, overdensity field, growth rate, and Hubble constant
-    >>> x = np.random.rand(1000, 3).astype(np.float32) * 100.0  # Example positions in Mpc/h
+    >>> # Particle pos., box size, overdensity field, growth rate, and H0
+    >>> x = np.random.rand(1000, 3).astype(np.float32) * 100.0  # Pos. in Mpc/h
     >>> Lbox = 100.0  # Mpc/h
     >>> overdensity_field = np.random.randn(64, 64, 64).astype(np.float32)
     >>> growth_rate = 10.0  # km/s/Mpc
-    >>> h = 70.0 / 100  # dimensionless Hubble parameter
+    >>> h = 70.0 / 100  # Dimensionless Hubble parameter
     >>> xpert, v = zeldovich(x, Lbox, overdensity_field, growth_rate, h)
     '''
-    # Nagyskálás módusok mindig ugyanazok legyenek ugyanarra a seedre
-    # Feltöltése a módusoknak nagyobbtól kisebbek irányába
     nmesh = overdensity_field.shape[0]
-    kk = np.fft.fftfreq(nmesh) * 2*np.pi/Lbox * nmesh
-    ks = np.fft.rfftfreq(nmesh) * 2*np.pi/Lbox * nmesh  # Hermitian symmetry
-    kvec = np.array(np.meshgrid(kk, kk, ks))
-    kmod = np.linalg.norm(kvec, axis=0)
+    kvec, kmod = fourier_grid(nmesh, Lbox, hermitian=True)
     delta_k = np.fft.rfftn(overdensity_field)
     xpert = np.zeros_like(x, dtype=np.float32)
     v = np.zeros_like(x, dtype=np.float32)
     for i, xi in enumerate(('x', 'y', 'z')):
         psi_i = np.zeros_like(kmod, dtype=complex)
         mask = kmod > 0.0
-        psi_i[mask] = -1j * kvec[i, mask] / kmod[mask]**2 * delta_k[mask]
+        psi_i[mask] = -1j * kvec[i, mask] / (kmod[mask] ** 2) * delta_k[mask]
         disp_field = np.fft.irfftn(psi_i)
-        max_disp = np.max(disp_field)
-        print(f'Maximal \'{xi}\' displacement: {max_disp*1000} kpc/h; '\
-              f'in units of mean particle separation: {max_disp * nmesh/Lbox}')
-        disp_field_interp = interpolate(x, Lbox, disp_field)
+        max_disp = np.max(np.abs(disp_field))
+        print(f"Maximal '{xi}' displacement: {max_disp*1000:.3f} kpc/h; "
+              f"in units of mean particle separation: {max_disp * nmesh / Lbox:.3f}")
+        disp_field_interp = interpolate_field(x, Lbox, disp_field)
         xpert[:, i] = x[:, i] + disp_field_interp
-        v[:, i] = disp_field_interp * growth_rate
-    return xpert%Lbox, v/h
+        v[:, i] = disp_field_interp * dD1
+    return np.mod(xpert, Lbox), v / h
 
-def second_order_lpt():
+
+def twolpt(x, overdensity_field, Lbox, dD1, dD2, h):
     '''
     Perform second-order Lagrangian perturbation theory.
     '''
-    pass
+    nmesh = overdensity_field.shape[0]
+    kvec, kmod = fourier_grid(nmesh, Lbox, hermitian=True)
+    delta_k = np.fft.rfftn(overdensity_field)
+    xpert = np.zeros_like(x, dtype=np.float32)
+    v = np.zeros_like(x, dtype=np.float32)
+
+    #...
+
+    for i, xi in enumerate(('x', 'y', 'z')):
+        # ...
+        xpert[:, i] = x[:, i] + psi_1i
+
+    return np.mod(xpert, Lbox), v / h
