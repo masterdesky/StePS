@@ -18,7 +18,7 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 
-def interpolate_field(x, field, Lbox):
+def interpolate_field(x, field, Lbox, method='linear'):
     r'''
     Interpolate a grid-based field onto particle positions using periodic
     boundaries.
@@ -32,6 +32,9 @@ def interpolate_field(x, field, Lbox):
         regular grid.
     Lbox : float
         The simulation box size.
+    method : str, optional
+        The interpolation method to use. This can be 'linear', 'nearest',
+        or 'cubic'. The default is 'linear'.
 
     Returns
     -------
@@ -43,11 +46,32 @@ def interpolate_field(x, field, Lbox):
     interpolator = RegularGridInterpolator(
         (grid, grid, grid),
         field,
-        method='linear',
+        method=method,
         bounds_error=False,
         fill_value=None  # Extrapolate using periodic wrapping if needed
     )
     return interpolator(np.mod(x, Lbox))
+
+
+def compute_overdensity(density_field):
+    r'''
+    Compute the overdensity field \(\delta(\mathbf{x})\) from the given
+    density field.
+
+    Parameters
+    ----------
+    density_field : ndarray
+        The density field (e.g., particle counts or mass density on a
+        grid).
+
+    Returns
+    -------
+    overdensity_field : ndarray
+        The overdensity field, defined as
+        \(\delta(\mathbf{x}) = \frac{\rho(\mathbf{x}) - \bar{\rho}}{\bar{\rho}}\).
+    '''
+    mean_density = np.mean(density_field)
+    return (density_field - mean_density) / mean_density
 
 
 def fourier_grid(nmesh, Lbox, hermitian=False):
@@ -71,8 +95,8 @@ def fourier_grid(nmesh, Lbox, hermitian=False):
     
     When ``hermitian`` is True, the output grid reflects the storage
     scheme of a real FFT, and the shape of ``kvec`` is
-    \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh}//2+1)\). Otherwise,
-    a full grid with shape \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh})\)
+    \((3, {\rm nmesh}, {\rm nmesh}, {\rm nmesh}//2+1)\). Otherwise,
+    a full grid with shape \((3, {\rm nmesh}, {\rm nmesh}, {\rm nmesh})\)
     is returned.
 
     Parameters
@@ -90,8 +114,10 @@ def fourier_grid(nmesh, Lbox, hermitian=False):
     -------
     kvec : ndarray
         A three-dimensional array of wavevector components with shape:
-          - \((3, nmesh, nmesh, nmesh//2+1)\) if ``hermitian`` is True.
-          - \((3, nmesh, nmesh, nmesh)\) if ``hermitian`` is False.
+          - \((3, {\mr nmesh}, {\rm nmesh}, {\rm nmesh}//2+1)\) if
+          ``hermitian`` is True.
+          - \((3, {\rm nmesh}, {\rm nmesh}, {\rm nmesh})\) if
+          ``hermitian`` is False.
         Each sub-array corresponds to the \(x\), \(y\), or \(z\) component
         of the wavevector.
     kmod : ndarray
@@ -107,14 +133,14 @@ def fourier_grid(nmesh, Lbox, hermitian=False):
     >>> kmod.shape
     (64, 64, 33)
     '''
-    kk = np.fft.fftfreq(nmesh) * 2 * np.pi / Lbox * nmesh
-    ks = np.fft.rfftfreq(nmesh) * 2 * np.pi / Lbox * nmesh if hermitian else kk
+    kk = np.fft.fftfreq(nmesh) * 2*np.pi / Lbox * nmesh
+    ks = np.fft.rfftfreq(nmesh) * 2*np.pi / Lbox * nmesh if hermitian else kk
     kvec = np.array(np.meshgrid(kk, kk, ks, indexing='ij'))
     kmod = np.linalg.norm(kvec, axis=0)
     return kvec, kmod
 
 
-def zeldovich(x, Lbox, overdensity_field, dD1, h):
+def zeldovich(x, Lbox, density_field, dD1, h):
     r'''
     Apply the Zel'dovich approximation to generate perturbed particle
     positions and velocities.
@@ -131,8 +157,7 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
         \mathbf{x}(\mathbf{q}, t) = \mathbf{q} + D(t) \, \mathbf{\Psi}(\mathbf{q}),
 
     where:
-    
-      - \(D(t)\) is the linear growth factor.
+      - \(D(t)\) is the linear growth factor,
       - \(\mathbf{\Psi}(\mathbf{q})\) is the displacement field computed
         from the density perturbations.
 
@@ -146,20 +171,21 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
         \quad \text{for } |\mathbf{k}| > 0,
 
     where:
-    
-      - \(\delta(\mathbf{k})\) is the Fourier transform of the real-space
+      - \(\delta(\mathbf{k})\) is the Fourier transform of the computed
         overdensity field,
       - \(k_i\) is the \(i\)-th component of the wavevector,
       - \(|\mathbf{k}|\) is the magnitude of the wavevector.
 
-    The function performs the following key steps:
+    **Overview of the Implementation:**
 
-    1. **Fourier Transform Setup:**
-       - It determines the resolution of the FFT grid from the shape of
-         the input ``overdensity_field``.
-       - It constructs the wavevector arrays by calling the utility
-         function ``fourier_grid()``. For a real field, the grid is built
-         using ``np.fft.fftfreq`` for the first two dimensions and
+    1. **Fourier Grid Setup:**
+       - The resolution of the FFT grid is determined by the shape of the
+         input ``density_field``.
+       - The raw density field is first converted to an overdensity field
+         by calling ``compute_overdensity(density_field)``.
+       - Wavevector arrays are constructed by calling the utility function
+         ``fourier_grid()``. For a real field, the grid is built using
+         ``np.fft.fftfreq`` for the first two dimensions and
          ``np.fft.rfftfreq`` for the third, yielding a k-space array of
          shape \((3, \texttt{nmesh}, \texttt{nmesh}, \texttt{nmesh}//2+1)\).
     
@@ -188,7 +214,7 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
 
              \mathbf{v} = \dot{D}(t) \, \mathbf{\Psi},
          
-         where \(\dot{D}(t)\) is provided as ``growth_rate``.
+         where \(\dot{D}(t)\) is provided as ``dD1``.
        - Periodic boundary conditions are enforced by wrapping the updated
          positions, and the velocities are rescaled by the dimensionless
          Hubble parameter ``h``.
@@ -201,15 +227,14 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
     Lbox : float
         The size of the simulation box in Mpc/h. Periodic boundary
         conditions are assumed.
-    overdensity_field : ndarray of shape (M, M, M)
-        Real-space overdensity field used to generate the displacement
-        field. 
+    density_field : ndarray of shape (M, M, M)
+        Real-space density field from which the overdensity field is computed.
     dD1 : float
         The time derivative of the linear growth factor, \(\dot{D}(t)\),
         in km/s/Mpc. This is used to compute the particle velocities.
     h : float
-        Dimensionless Hubble parameter, \(h = H_0/100\), where \(H_0\) is
-        the Hubble constant in km/s/Mpc.
+        Dimensionless Hubble parameter, \(h = H_0/100\), where \(H_0\)
+        is the Hubble constant in km/s/Mpc.
 
     Returns
     -------
@@ -227,24 +252,39 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
     Examples
     --------
     >>> import numpy as np
-    >>> # Particle pos., box size, overdensity field, growth rate, and H0
-    >>> x = np.random.rand(1000, 3).astype(np.float32) * 100.0  # Pos. in Mpc/h
+    >>> # Box size, particle coordinates, density field, growth rate, and H0
     >>> Lbox = 100.0  # Mpc/h
-    >>> overdensity_field = np.random.randn(64, 64, 64).astype(np.float32)
-    >>> growth_rate = 10.0  # km/s/Mpc
-    >>> h = 70.0 / 100  # Dimensionless Hubble parameter
-    >>> xpert, v = zeldovich(x, Lbox, overdensity_field, growth_rate, h)
+    >>> x = np.random.rand(1000, 3).astype(np.float32) * Lbox  # Coords in Mpc/h
+    >>> density_field = np.random.randn(64, 64, 64).astype(np.float32)
+    >>> dD1 = 10.0  # km/s/Mpc (time derivative of the growth factor)
+    >>> h = 67.6 / 100  # Dimensionless Hubble parameter
+    >>> xpert, v = zeldovich(x, Lbox, density_field, dD1, h)
+    
+    Notes
+    -----
+    - The function first converts the raw density field to an overdensity
+      field using ``compute_overdensity()``.
+    - It leverages the ``fourier_grid()`` utility to construct the k-space
+      grid.
+    - Real FFTs (via ``np.fft.rfftn`` and ``np.fft.irfftn``) are used to
+      compute the Fourier-space derivatives while exploiting Hermitian
+      symmetry of the overdensity field.
+    - The interpolation step is needed since the displacement field is
+      computed on a regular grid, but particle positions are generally
+      not located exactly on grid points.
     '''
-    nmesh = overdensity_field.shape[0]
+    nmesh = density_field.shape[0]
+    overdensity_field = compute_overdensity(density_field)
     kvec, kmod = fourier_grid(nmesh, Lbox, hermitian=True)
     delta_k = np.fft.rfftn(overdensity_field)
+    mask = kmod > 0.0  # Avoid division by zero at k=0
     xpert = np.zeros_like(x, dtype=np.float32)
     v = np.zeros_like(x, dtype=np.float32)
+
     for i, xi in enumerate(('x', 'y', 'z')):
-        psi_i = np.zeros_like(kmod, dtype=complex)
-        mask = kmod > 0.0
-        psi_i[mask] = -1j * kvec[i, mask] / (kmod[mask] ** 2) * delta_k[mask]
-        disp_field = np.fft.irfftn(psi_i)
+        psi1_ki = np.zeros_like(kmod, dtype=complex)
+        psi1_ki[mask] = -1j * kvec[i, mask] / (kmod[mask] ** 2) * delta_k[mask]
+        disp_field = np.fft.irfftn(psi1_ki)
         max_disp = np.max(np.abs(disp_field))
         print(f"Maximal '{xi}' displacement: {max_disp*1000:.3f} kpc/h; "
               f"in units of mean particle separation: {max_disp * nmesh / Lbox:.3f}")
@@ -254,20 +294,281 @@ def zeldovich(x, Lbox, overdensity_field, dD1, h):
     return np.mod(xpert, Lbox), v / h
 
 
-def twolpt(x, overdensity_field, Lbox, dD1, dD2, h):
+def twolpt(x, density_field, Lbox, dD1, dD2, h):
+    r'''
+    Perform second-order Lagrangian perturbation theory (2LPT) to generate
+    perturbed particle positions and velocities.
+
+    In 2LPT the Eulerian position \(\mathbf{x}\) is given by
+
+    .. math::
+
+        \mathbf{x}(\mathbf{q}, t) =
+            \mathbf{q}
+            + D_1(t)\,\mathbf{\Psi}^{(1)}(\mathbf{q})
+            + D_2(t)\,\mathbf{\Psi}^{(2)}(\mathbf{q}),
+
+    where:
+      - \(\mathbf{q}\) denotes the initial (Lagrangian) positions,
+      - \(D_1(t)\) is the linear growth factor (first order),
+      - \(D_2(t)\) is the second-order growth factor,
+      - \(\mathbf{\Psi}^{(1)}\) is the first-order displacement field,
+      - \(\mathbf{\Psi}^{(2)}\) is the second-order displacement field.
+
+    In many implementations the displacement fields are normalized so
+    that the computed displacements already include the growth factors.
+    Here, it is done in a way that \(D_1\) and \(D_2\) are normalized to
+    \(1\) at \(a=1\). In our convention, the first-order displacement
+    (computed as in the Zel'dovich approximation) is taken to represent
+    \(D_1\,\mathbf{\Psi}^{(1)}\), and the second-order displacement will
+    represent \(D_2\,\mathbf{\Psi}^{(2)}\).
+    
+    The velocities are then given by
+
+    .. math::
+
+        \mathbf{v} =
+            \dot{D}_1\,\mathbf{\Psi}^{(1)} + \dot{D}_2\,\mathbf{\Psi}^{(2)},
+    
+    where \(\dot{D}_1\) and \(\dot{D}_2\) (passed as ``dD1`` and ``dD2``)
+    are the time derivatives of the growth factors.
+
+    **Overview of the Implementation:**
+
+    1. **Fourier Grid Setup:**
+       - A 3D Fourier space grid is constructed (via ``fourier_grid()``)
+         for a mesh of size \(n_{\rm mesh}\) in a box of size \(L_{\rm box}\).
+         For a real field, the third dimension is handled using a reduced
+         FFT (Hermitian symmetry) so that the k-space array has shape
+         \((3, n_{\rm mesh}, n_{\rm mesh}, n_{\rm mesh}//2+1)\).
+
+    2. **First-Order Displacement Field (\(\mathbf{\Psi}^{(1)}\)):**
+       - The overdensity field is Fourier-transformed using ``np.fft.rfftn``
+         to obtain \(\delta(\mathbf{k})\).
+       - For each spatial component \(i\), the Fourier-space displacement
+         is computed as
+
+         .. math::
+
+             \Psi^{(1)}_i(\mathbf{k}) =
+                -i\,\frac{k_i}{|\mathbf{k}|^2}\,\delta(\mathbf{k}),
+             \quad |\mathbf{k}| > 0.
+         
+       - An inverse FFT (``np.fft.irfftn``) yields the real-space first-
+         order displacement field, which already includes the factor \(D_1\).
+
+    3. **Second-Order Source Term:**
+       - To compute the second-order displacement field, we first need
+         to construct a quadratic source term \(S(\mathbf{x})\) from the
+         spatial derivatives of the first-order displacement.
+       - Following standard 2LPT theory, one may compute
+
+         .. math::
+
+             S(\mathbf{x}) = \frac{\partial \Psi^{(1)}_x}{\partial x}
+             \left(
+                \frac{\partial \Psi^{(1)}_y}{\partial y}
+                + \frac{\partial \Psi^{(1)}_z}{\partial z}
+             \right)
+             + \frac{\partial \Psi^{(1)}_y}{\partial y}\,\frac{\partial \Psi^{(1)}_z}{\partial z}
+             - \left[\left(\frac{\partial \Psi^{(1)}_x}{\partial y}\right)^2
+             + \left(\frac{\partial \Psi^{(1)}_x}{\partial z}\right)^2
+             + \left(\frac{\partial \Psi^{(1)}_y}{\partial z}\right)^2\right].
+         
+       - In the code we denote:
+         - \(dPxx = \frac{\partial \Psi^{(1)}_x}{\partial x}\),
+         - \(dPxy = \frac{\partial \Psi^{(1)}_x}{\partial y}\),
+         - \(dPxz = \frac{\partial \Psi^{(1)}_x}{\partial z}\),
+         - \(dPyy = \frac{\partial \Psi^{(1)}_y}{\partial y}\),
+         - \(dPyz = \frac{\partial \Psi^{(1)}_y}{\partial z}\),
+         - \(dPzz = \frac{\partial \Psi^{(1)}_z}{\partial z}\),
+         
+         and then set
+
+         .. math::
+
+             S(\mathbf{x}) =
+             dPxx\,(dPyy + dPzz) + dPyy\,dPzz - (dPxy^2 + dPxz^2 + dPyz^2).
+         
+       - The source \(S(\mathbf{x})\) is Fourier-transformed to \(S(\mathbf{k})\).
+
+    4. **Second-Order Displacement Field (\(\mathbf{\Psi}^{(2)}\)):**
+       - The Poisson equation in Fourier space is solved for the second-
+         order potential:
+
+         .. math::
+
+             \phi^{(2)}(\mathbf{k}) = -\frac{S(\mathbf{k})}{|\mathbf{k}|^2},
+         
+         with the \(k=0\) mode appropriately masked.
+       - The second-order displacement in Fourier space is then given by
+
+         .. math::
+
+             \Psi^{(2)}_i(\mathbf{k}) = i\,k_i\,\phi^{(2)}(\mathbf{k}),
+         
+         and an inverse FFT yields the real-space second-order displacement
+         field.
+       - In an Einstein-de Sitter Universe, the second-order growth factor
+         is \(D_2 = -\frac{3}{7}\,D_1^2\). Thus, the final update is
+         performed as
+
+         .. math::
+
+             \mathbf{x}_{\rm pert} = \mathbf{q} + \mathbf{\Psi}^{(1)}
+             - \frac{3}{7}\,\mathbf{\Psi}^{(2)},
+         
+         and similarly for the velocity field:
+
+         .. math::
+
+             \mathbf{v} = \dot{D}_1\,\mathbf{\Psi}^{(1)}
+             - \frac{3}{7}\,\dot{D}_2\,\mathbf{\Psi}^{(2)}.
+    
+    5. **Interpolation and Particle Update:**
+       - Both the first- and second-order displacement fields are defined
+         on the FFT grid. They are interpolated to the particle positions
+         (which generally do not lie exactly on grid points) using a
+         trilinear (or similar) interpolation routine.
+       - Finally, positions are updated and wrapped periodically, and
+         velocities are rescaled by the dimensionless Hubble parameter \(h\).
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, 3)
+        Initial unperturbed particle positions (Lagrangian coordinates),
+        typically in Mpc/h.
+    density_field : ndarray of shape (M, M, M)
+        Real-space density field from which the overdensity field is
+        computed.
+    Lbox : float
+        The size of the simulation box in Mpc/h. Periodic boundary
+        conditions are assumed.
+    dD1 : float
+        The time derivative of the linear growth factor, \(\dot{D}_1\)
+        (in km/s/Mpc), used to compute the first-order velocity contribution.
+    dD2 : float
+        The time derivative of the second-order growth factor, \(\dot{D}_2\)
+        (in km/s/Mpc), used to compute the second-order velocity contribution.
+    h : float
+        Dimensionless Hubble parameter, \(h = H_0/100\), where \(H_0\)
+        is the Hubble constant in km/s/Mpc.
+
+    Returns
+    -------
+    xpert : ndarray of shape (N, 3)
+        Perturbed particle positions (Eulerian coordinates) after
+        applying 2LPT. Positions are wrapped periodically within the
+        simulation box.
+    v : ndarray of shape (N, 3)
+        Particle velocities in km/s, computed as
+
+        .. math::
+
+            \mathbf{v} = \dot{D}_1\,\mathbf{\Psi}^{(1)}
+            - \frac{3}{7}\,\dot{D}_2\,\mathbf{\Psi}^{(2)}.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> # Box size, particle coordinates, density field, growth rates, and H0
+    >>> Lbox = 100.0  # Mpc/h
+    >>> x = np.random.rand(1000, 3).astype(np.float32) * Lbox  # Coords in Mpc/h
+    >>> density_field = np.random.randn(64, 64, 64).astype(np.float32)
+    >>> dD1 = 10.0   # km/s/Mpc (first-order time derivative)
+    >>> dD2 = 1.0    # km/s/Mpc (second-order time derivative)
+    >>> h = 67.6 / 100  # Dimensionless Hubble parameter
+    >>> xpert, v = twolpt(x, density_field, Lbox, dD1, dD2, h)
+    
+    Notes
+    -----
+    - The function first converts the raw density field to an overdensity
+      field using ``compute_overdensity()``.
+    - It leverages the ``fourier_grid()`` utility to construct the k-space
+      grid.
+    - Real FFTs (via ``np.fft.rfftn`` and ``np.fft.irfftn``) are used to
+      compute the Fourier-space derivatives while exploiting Hermitian
+      symmetry of the overdensity field.
+    - The second-order source term is computed from specific derivatives
+      of the first-order displacement field, following the standard 2LPT
+      formulation. A canonical \(3/7\) factor is applied to the first-
+      order term to obtain the second-order growth factor.
+    - The interpolation step is needed since the displacement field is
+      computed on a regular grid, but particle positions are generally
+      not located exactly on grid points.
     '''
-    Perform second-order Lagrangian perturbation theory.
-    '''
-    nmesh = overdensity_field.shape[0]
+    nmesh = density_field.shape[0]
+    overdensity_field = compute_overdensity(density_field)
     kvec, kmod = fourier_grid(nmesh, Lbox, hermitian=True)
     delta_k = np.fft.rfftn(overdensity_field)
+    mask = kmod > 0.0  # Avoid division by zero at k=0
     xpert = np.zeros_like(x, dtype=np.float32)
     v = np.zeros_like(x, dtype=np.float32)
+    s = (nmesh, nmesh, nmesh) # Shape of the displacement field along each axis    
 
-    #...
-
+    # ------------------------------
+    # 1. First-Order Displacement (Psi^(1))
+    # ------------------------------
+    psi1_k = []  # Store Fourier-space first-order displacement for each axis
+    disp1 = []   # Real-space first-order displacement fields
     for i, xi in enumerate(('x', 'y', 'z')):
-        # ...
-        xpert[:, i] = x[:, i] + psi_1i
+        psi1_ki = np.zeros_like(kmod, dtype=complex)
+        psi1_ki[mask] = -1j * kvec[i, mask] / (kmod[mask]**2) * delta_k[mask]
+        psi1_k.append(psi1_ki)
+        disp_field = np.fft.irfftn(psi1_ki, s=s)
+        max_disp = np.max(np.abs(disp_field))
+        print(f"Maximal '{xi}' 1st-order displacement: {max_disp*1000:.3f} kpc/h; "
+              f"in units of mean particle separation: {max_disp * nmesh / Lbox:.3f}")
+        disp1.append(disp_field)
+    disp1 = np.array(disp1)  # Shape: (3, nmesh, nmesh, nmesh)
 
+    # ------------------------------
+    # 2. Compute Derivatives of Psi^(1) for the Second-Order Source
+    # ------------------------------
+    # Using Fourier differentiation: derivative along direction j is given by
+    # irfftn(1j * kvec[j] * psi1_k[i]), where j >= i.
+    dPxx = np.fft.irfftn(1j * kvec[0] * psi1_k[0], s=s)  # d(Psi_x)/dx
+    dPxy = np.fft.irfftn(1j * kvec[1] * psi1_k[0], s=s)  # d(Psi_x)/dy
+    dPxz = np.fft.irfftn(1j * kvec[2] * psi1_k[0], s=s)  # d(Psi_x)/dz
+    # --
+    dPyx = np.fft.irfftn(1j * kvec[1] * psi1_k[1], s=s)  # d(Psi_y)/dy
+    dPyy = np.fft.irfftn(1j * kvec[2] * psi1_k[1], s=s)  # d(Psi_y)/dz
+    # --
+    dPzz = np.fft.irfftn(1j * kvec[2] * psi1_k[2], s=s)  # d(Psi_z)/dz
+
+    # Compute the quadratic source S(x) and its Fourier transform S(k)
+    S = dPxx * (dPyx + dPzz) + dPyx * dPzz - (dPxy**2 + dPxz**2 + dPyy**2)
+    S_k = np.fft.rfftn(S)
+
+    # ------------------------------
+    # 3. Second-Order Displacement (Psi^(2))
+    # ------------------------------
+    # Solve the Poisson equation in Fourier space:
+    # phi2(k) = -S(k) / |k|^2, with k=0 mode masked
+    phi2_k = np.zeros_like(S_k, dtype=complex)
+    phi2_k[mask] = -S_k[mask] / (kmod[mask]**2)
+
+    # Compute the second-order displacement field:
+    # Psi2_i(k) = i * k_i * phi2(k), then inverse FFT to obtain real space.
+    disp2 = []
+    for i, xi in enumerate(('x', 'y', 'z')):
+        psi2_k = np.zeros_like(S_k, dtype=complex)
+        psi2_k[mask] = 1j * kvec[i, mask] * phi2_k[mask]
+        disp_field = np.fft.irfftn(psi2_k, s=s)
+        max_disp = np.max(np.abs(disp_field))
+        print(f"Maximal '{xi}' 2nd-order displacement: {max_disp*1000:.3f} kpc/h; "
+              f"in units of mean particle separation: {max_disp * nmesh / Lbox:.3f}")
+        disp2.append(disp_field)
+    disp2 = np.array(disp2)  # Shape: (3, nmesh, nmesh, nmesh)
+
+    # ------------------------------
+    # 4. Interpolate and Update Particle Positions and Velocities
+    # ------------------------------
+    # For each spatial axis, interpolate the displacement fields (both
+    # first- and second-order) from the grid to the particle positions.
+    for i in range(3):
+        disp1_interp = interpolate_field(x, Lbox, disp1[i])
+        disp2_interp = interpolate_field(x, Lbox, disp2[i])
+        xpert[:, i] = x[:, i] + disp1_interp - (3.0/7.0) * disp2_interp
+        v[:, i] = disp1_interp * dD1 - (3.0/7.0) * disp2_interp * dD2
     return np.mod(xpert, Lbox), v / h
