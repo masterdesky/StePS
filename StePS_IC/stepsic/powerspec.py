@@ -20,19 +20,153 @@ import camb
 from colossus.cosmology import cosmology
 
 
+def hubble_a(a, H0, omega_m, omega_l):
+    r'''
+    Computes the Hubble parameter $H(a)$ at scale factor $a$.
+
+    The Hubble parameter is given by
+
+    .. math::
+        H(a) = H_0\,\sqrt{\Omega_m\,a^3 + (1 - \Omega_m - \Omega_\Lambda)\,a^2 + \Omega_\Lambda},
+
+    where $a$ is the scale factor normalized to 1 at present. $H_0$ is
+    the Hubble constant, $\Omega_m$ is the present-day matter density
+    parameter and $\Omega_\Lambda$ is the present-day dark energy density
+    parameter.
+
+    Parameters
+    ----------
+    a : float
+        Scale factor (normalized to 1 at present).
+    H0 : float
+        Hubble constant in km/s/Mpc.
+    omega_m : float
+        Present-day matter density parameter.
+    omega_l : float
+        Present-day dark energy density parameter.
+
+    Returns
+    -------
+    float
+        The Hubble parameter $H(a)$ evaluated at scale factor $a$.
+    '''
+    return H0 * np.sqrt(omega_m / a**3 + (1 - omega_m - omega_l) / a**2 + omega_l)
+
+def F_omega(a, omega_m, omega_l):
+    r'''
+    Computes the linear growth rate factor for first-order Lagrangian
+    perturbation.
+
+    This function returns the factor $F_\omega(a)$, defined by
+
+    .. math::
+        F_\omega(a) = \left[\Omega(a)\right]^{0.6},
+
+    where the effective matter density parameter $\Omega(a)$ is computed
+    as
+
+    .. math::
+        \Omega(a) = \frac{\omega_m}{\omega_m + a\,(1 - \omega_m - \omega_l) + \omega_l\,a^3}.
+
+    $F_\omega$ approximates the logarithmic derivative of the linear
+    growth factor $D_1$ with respect to the scale factor $a$, i.e.
+
+    .. math::
+        f \equiv \frac{d\ln(D_1)}{d\ln(a)}.
+
+
+    Parameters
+    ----------
+    a : float
+        Scale factor (normalized to 1 at present).
+    omega_m : float
+        Present-day matter density parameter.
+    omega_l : float
+        Present-day dark energy density parameter.
+
+    Returns
+    -------
+    float
+        The linear growth rate $F_\omega$ evaluated at scale factor $a$.
+    '''
+    omega_a = omega_m / (omega_m + a * (1 - omega_m - omega_l) + a**3 * omega_l)
+    return np.power(omega_a, 3.0/5.0)
+
+def F2_omega(a, omega_m, omega_l):
+    r'''
+    Computes the second-order growth rate factor for second-order
+    Lagrangian perturbation theory corrections.
+
+    This function returns the factor $F2_\omega(a)$, defined by
+
+    .. math::
+        F2_\omega(a) = 2\,\left[\Omega(a)\right]^{\frac{4}{7}},
+
+    where the effective matter density parameter $\Omega(a)$ is computed
+    as
+
+    .. math::
+        \Omega(a) = \frac{\omega_m}{\omega_m + a\,(1 - \omega_m - \omega_l) + \omega_l\,a^3}.
+
+    $F2_\omega$ is used in second-order Lagrangian perturbation theory
+    to scale the second-order displacement field and its time derivative,
+    thereby accounting for non-linear corrections to the growth of structure.
+
+    Parameters
+    ----------
+    a : float
+        Scale factor (normalized to 1 at present).
+    omega_m : float
+        Present-day matter density parameter.
+    omega_l : float
+        Present-day dark energy density parameter.
+
+    Returns
+    -------
+    float
+        The second-order growth rate $F2_\omega$ evaluated at scale
+        factor $a$.
+    '''
+    omega_a = omega_m / (omega_m + a * (1 - omega_m - omega_l) + a**3 * omega_l)
+    return 2 * np.power(omega_a, 4.0/7.0)
+
 def linear_growth_function(
         z, H0, omega_m, omega_b, omega_l, s8, ns, de_model, de_params, silent=True):
     '''
-    Calculate the linear growth factor D(a) normalized to 1 at a=1.
+    Calculate the linear growth factor $D_1 (a)$ normalized to $1$
+    at $a = 1$.
 
-    For w0 and CPL dark energy, we use the Colossus implementation of
-    Eq. (11) from Linder & Jenkins (2003).
+    For $w_0$ and CPL dark energy, we use the Colossus implementation
+    of Eq. (11) from Linder & Jenkins (2003).
     See paper at https://arxiv.org/pdf/astro-ph/0305286.pdf.
+
+    Parameters:
+    -----------
+    z : float
+        Redshift at which the linear growth factor is calculated.
+    H0 : float
+        Hubble constant in km/s/Mpc.
+    omega_m : float
+        Present-day matter density parameter.
+    omega_b : float
+        Present-day baryonic matter density parameter.
+    omega_l : float
+        Present-day dark energy density parameter.
+    s8 : float
+        RMS matter fluctuation amplitude at 8 Mpc/h.
+    ns : float
+        Scalar spectral index of the primordial power spectrum.
+    de_model : str
+        Dark energy model. Possible values are "Lambda", "w0", or "CPL").
+    de_params : list or array-like
+        Dark energy parameters (one element for "w0", two for "CPL").
+    silent : bool, optional
+        If True, suppress console output.
 
     Returns:
     --------
-    Dlin : float
-        The linear growth factor at a=1.
+    D1 : float
+        The linear growth factor at $a = 1$.
     '''
     # Calculating the curvature
     omega_k = 1.0 - omega_m - omega_l
@@ -65,10 +199,12 @@ def linear_growth_function(
         if not flat:
             params.update({'Ode0': omega_l})
         cosmo = cosmology.setCosmology('w0waCDM', **params)
-    Dlin = cosmo.growthFactorUnnormalized(z) / cosmo.growthFactorUnnormalized(0.0)
+    else:
+        raise ValueError('Invalid dark energy model. Options are "Lambda", "w0", "CPL".')
+    D1 = cosmo.growthFactorUnnormalized(z) / cosmo.growthFactorUnnormalized(0.0)
     if not silent:
-        print(f'Initial normalized linear growth: D(z={z:.2f})/D(z=0) = {Dlin:.2e}')
-    return Dlin
+        print(f'Initial normalized linear growth: D(z={z:.2f})/D(z=0) = {D1:.2e}')
+    return D1
 
 def camb_linear_spectrum(
         z=127, H0=73.0, ombh2=0.024, omch2=0.1092445, omega_k=0.0,
@@ -106,9 +242,10 @@ def camb_linear_spectrum(
     de_model : str
         Dark energy model. Options are 'Lambda', 'w0', 'CPL'.
     de_params : list or array-like
-        Dark energy model parameters. For 'Lambda' and 'w0', it is a single
-        element list containing the dark energy equation of state parameter w.
-        For 'CPL', it is a two element list containing w and wa.
+        Dark energy model parameters. For 'Lambda' and 'w0', it is a
+        single element list containing the dark energy equation of state
+        parameter $w$. For 'CPL', it is a two element list containing
+        $w$ and $w_a$.
     '''
     params = camb.CAMBparams()
     params.set_cosmology(H0=H0, ombh2=ombh2, omch2=omch2, omk=omega_k)

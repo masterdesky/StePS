@@ -104,14 +104,16 @@ class CosmoSnapshot:
             self.rescale_snapshot_mass(params)
         
         mass_nsample = np.c_[
-            self.mass_list, np.uint32(np.cbrt(self.M_box / self.mass_list))]
+                self.mass_list,
+                np.uint32(np.cbrt(self.M_box / self.mass_list))
+        ]
         mass_nsample_lut = np.zeros((params['NGRIDSAMPLES'], 2), dtype=np.uint32)
         d_nsample = np.uint32(np.ceil(len(self.mass_list) / params['NGRIDSAMPLES']))
         
         print("The generated Nsample list:")
         print("ID\tNsample\tMass(in 10e11Msol)")
         # Populate lookup table by starting with the outermost mass bin,
-        # while skipping the innermost layer.
+        # while skipping the innermost layer
         mass_nsample_sorted = sorted(mass_nsample, key=lambda x: x[0])
         for si in reversed(range(params['NGRIDSAMPLES']-1)):
             if si == params['NGRIDSAMPLES']-2:

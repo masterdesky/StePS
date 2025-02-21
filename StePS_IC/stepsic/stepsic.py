@@ -31,7 +31,7 @@ from pynverse import inversefunc
 from .writeparamfile import *
 from .parameters import CosmoParameters
 from .inputoutput import SnapshotIO
-from .cosmology import CosmoSnapshot
+from .snapshot import CosmoSnapshot
 from .powerspec import camb_linear_spectrum
 from .stereographic import *
 from .perturbation import zeldovich
