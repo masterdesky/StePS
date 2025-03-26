@@ -29,7 +29,7 @@ gabor.racz@jpl.nasa.gov
 
 This is an IC generator script for StePS simulations.
 -written in python3
--uses an external code such as N-GenIC(http://ascl.net/1502.003) or 2LPTic(https://ascl.net/1201.005) to calculate the displacement field
+-leverages the Zel'dovich approximation and 2LPT to generate initial conditions
 -reads an input glass, and perturbates its particles
 -the output can be in ASCII or in HDF5 format.
 
@@ -46,8 +46,6 @@ Dependencies:
 	-astropy
   -camb
   -colossus (https://bdiemer.bitbucket.io/colossus/)
-	External:
-	-NgenIC or 2LPTic
 
 Running the script:
 	type:
