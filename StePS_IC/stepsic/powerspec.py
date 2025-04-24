@@ -177,8 +177,8 @@ def linear_growth_function(
         flat = False
         print(f'Non-flat cosmology; {omega_k =}, {omega_m =:.4f}, {omega_l =:.4f}')
     # Zero CMB temperature can cause issues in colossus. This small value
-    # shouldn't cause any significant errors at late times in relevant
-    # cosmologies. (Non-zero `omega_r` will be implemented in the future.)
+    # should not cause any significant errors at late times in relevant
+    # cosmologies. TODO: Implement a non-zero `omega_r`
     T_cmb = 0.001
     
     params = {  # Common cosmological parameters for all models
@@ -288,3 +288,25 @@ def camb_linear_spectrum(
     kh, _, pk = results.get_matter_power_spectrum(
                                 minkh=kmin, maxkh=kmax, npoints=npoints)
     return kh, pk[0]*DzD0**2
+
+def generate_camb(params):
+    '''
+    Setting the initial power spectrum with CAMB.
+
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing the parameter list of a StePS simulation.
+    '''    
+    print('Calculating input spectrum with CAMB...')
+    kmin    = 1.0*np.pi/params['LBOX']
+    kmax    = 100.0
+    npoints = 2048
+    kh, pk  = camb_linear_spectrum(
+        H0=params['H0'], ombh2=params['OMBH2'], omch2=params['OMCH2'], omk=params['OMK'],
+        ns=params['PRIMORDIALINDEX'], redshift=params['REDSHIFT'],
+        kmin=kmin, kmax=kmax, npoints=npoints, sigma8=params['SIGMA8'],
+        DE=params['DARKENERGYMODEL'], DE_params=params['DARKENERGYPARAMS'])
+    Pk3 = np.vstack((np.log10(kh), np.log10(pk*kh**3/(2*np.pi**2)))).T
+    np.savetxt(params['FILEWITHINPUTSPECTRUM'], Pk3)
+    print('...done.')

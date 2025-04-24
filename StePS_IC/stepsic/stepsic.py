@@ -19,6 +19,7 @@
 import os
 import sys
 import time
+import logging
 import numpy as np
 from subprocess import call
 from textwrap import dedent
@@ -26,19 +27,13 @@ from textwrap import dedent
 import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 
-from pynverse import inversefunc
-
-from .writeparamfile import *
-from .parameters import CosmoParameters
-from .inputoutput import SnapshotIO
-from .snapshot import CosmoSnapshot
-from .powerspec import camb_linear_spectrum
-from .stereographic import *
-from .perturbation import zeldovich
-
-
-_VERSION = 'v2.0'
-_YEAR = '2017-2025'
+from stepsic.writeparamfile import Write_2LPTic_paramfile, Write_NgenIC_paramfile, Write_LgenIC_paramfile
+from stepsic.parameters import CosmoParameters
+from stepsic.inputoutput import SnapshotIO
+from stepsic.data import CosmoData
+from stepsic.powerspec import generate_camb
+from stepsic.stereographic import calculate_rlimits_i, calculate_rlimits_i_cvol, calculate_r_i, create_mass_nsample_lut
+from stepsic.perturbation import zeldovich, twolpt
 
 # StePS internal units
 UNIT_T = 47.14829951063323      # Unit time in Gy
@@ -48,59 +43,38 @@ UNIT_D = 3.0856775814671917e24  # =1Mpc Unit distance in cm
 
 def header(N1:int = 97, N2:int = 66):
     art = dedent(f'''
-    |      _____ _       _____   _____    _____ _____
-    |     / ____| |     |  __ \ / ____|  |_   _/ ____|
-    |    | (___ | |_ ___| |__) | (___      | || |       _ __  _   _
-    |     \___ \| __/ _ \  ___/ \___ \     | || |      | '_ \| | | |
-    |     ____) | ||  __/ |     ____) |____| || |____ _| |_) | |_| |
-    |    |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |
-    |                                                  | |     __/ |
-    |                                                  |_|    |___/
-    | StePS_IC.py {_VERSION}
-    |  (an IC generator python script for STEreographically Projected cosmological Simulations)
+         _____ _       _____   _____    _____ _____
+        / ____| |     |  __ \ / ____|  |_   _/ ____|
+       | (___ | |_ ___| |__) | (___      | || |       _ __  _   _
+        \___ \| __/ _ \  ___/ \___ \     | || |      | '_ \| | | |
+        ____) | ||  __/ |     ____) |____| || |____ _| |_) | |_| |
+       |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |
+                                                     | |     __/ |
+                                                     |_|    |___/
+    StePS_IC.py {__version__}
+     (an IC generator python script for STEreographically Projected cosmological Simulations)
     ''')
     cop = dedent(f'''
-    | Copyright (C) ({_YEAR}) Gabor Racz
-    | \tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
-    | \tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
-    | \tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+    Copyright (C) ({__year__}) Gabor Racz
+    \tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
+    \tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+    \tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
+    \tDepartment of Physics, University of Helsinki | Helsinki, Finland
     ''')
     war = dedent(f'''
-    | StePS_IC.py comes with ABSOLUTELY NO WARRANTY.
-    | This is free software, and you are welcome to redistribute it
-    | under certain conditions. See the LICENSE file for details.
+    StePS_IC.py comes with ABSOLUTELY NO WARRANTY.
+    This is free software, and you are welcome to redistribute it
+    under certain conditions. See the LICENSE file for details.
     ''')
     # Define horizontal borders: +-- ... --+
     b  = lambda N: f'+{"-"*(N-2)}+'
     # Converts multiline string to list of lines
     ls = lambda s: s.strip().expandtabs(4).splitlines()
     # Pad RHS of all lines with spaces to get them equally `N` chars wide
-    T  = lambda s, N: '\n'.join([f"{l}{' '*(N-1-len(l))}|" for l in ls(s)])
+    T  = lambda s, N: '\n'.join([f"| {l}{' '*(N-1-len(l))}|" for l in ls(s)])
 
     print(f'{b(N1)}\n{T(art, N1)}\n{b(N1)}\n{T(cop, N1)}\n{b(N1)}')
     print(f'\n{b(N2)}\n{T(war, N2)}\n{b(N2)}')
-
-def generate_camb(params):
-    '''
-    Setting the initial power spectrum with CAMB.
-
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing the parameter list of a StePS simulation.
-    '''    
-    print('Calculating input spectrum with CAMB...')
-    kmin    = 1.0*np.pi/params['LBOX']
-    kmax    = 100.0
-    npoints = 2048
-    kh, pk  = camb_linear_spectrum(
-        H0=params['H0'], ombh2=params['OMBH2'], omch2=params['OMCH2'], omk=params['OMK'],
-        ns=params['PRIMORDIALINDEX'], redshift=params['REDSHIFT'],
-        kmin=kmin, kmax=kmax, npoints=npoints, sigma8=params['SIGMA8'],
-        DE=params['DARKENERGYMODEL'], DE_params=params['DARKENERGYPARAMS'])
-    Pk3 = np.vstack((np.log10(kh), np.log10(pk*kh**3/(2*np.pi**2)))).T
-    np.savetxt(params['FILEWITHINPUTSPECTRUM'], Pk3)
-    print('...done.')
 
 
 def main():
@@ -108,7 +82,7 @@ def main():
     header(N1=97, N2=66)
     # Reading in input parameter file
     if len(sys.argv) != 2:
-        raise ValueError('Error: missing yaml file!\nUsage: ./StePS_IC.py <input yaml file>\nExiting.')
+        raise ValueError("Error: missing yaml file!\nUsage: ./StePS_IC.py <input yaml file>\nExiting.")
     params = CosmoParameters().load_parameters(filename=sys.argv[1])
     # Calculating the density from the cosmological parameters in simulation units
     params['RHO_CRIT'] = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
@@ -119,19 +93,27 @@ def main():
         params['RENORMALIZEINPUTSPECTRUM'] = 0
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    cosmoic = CosmoSnapshot(SnapshotIO().load_snapshot(params['GLASSFILE']))
+    ic_orig = CosmoData(SnapshotIO().load_snapshot(params['GLASSFILE']))
     # Preprocess the input glass to prepare for the IC generation.
     # Rescale its masses to match the mean density of the universe and
     # periodically shift the particles to the center of the box.
-    cosmoic.rescale_snapshot_mass(params)
-    cosmoic.periodic_shift(params)
+    ic_orig.rescale_snapshot_mass(params)
+    ic_orig.periodic_shift(params)
     if params['NMESH'] == 0:
         # If the number of mesh points is not specified, the script will
         # generate multiple ICs with grids of different resolutions. This
-        # is the standard method to generate ICs for StePS simulations.
-        cosmoic.create_mass_nsample_lut(params)
+        # is the standard method to generate a variable resolution IC for
+        # StePS simulations.
+        mass_nsample_lut = create_mass_nsample_lut(
+                    params['NGRIDSAMPLES'], ic_orig.mass_list, ic_orig.M_box)
+    else:
+        # If the number of mesh points is specified, the script will
+        # generate a single IC with a grid of the specified resolution.
+        # This is useful for testing purposes or for generating ICs with
+        # a specific resolution.
+        pass
     # End of the script
-    print(f'The IC building took {(time.time() - start):.4f} s.')
+    print(f"The IC building took {(time.time() - start):.4f} s.")
 
 if __name__ == "__main__":
     main()
@@ -139,119 +121,70 @@ if __name__ == "__main__":
 
 
 #*******************************************************************************#
-#Converting the input glass to gadget format:
-if params['LOCAL_EXECUTION'] < 2:
-    print("Converting the input glass to Gadget format...")
-    output_glassfile = params['OUTDIR'] + params['FILEBASE'] + "_Glass_tmp.dat"
-    np.savetxt(output_glassfile, input_glass, delimiter='\t')
-    gadget_glassfile = params['OUTDIR'] + params['FILEBASE'] + "_GLASS"
-    ascii2gadget(output_glassfile, gadget_glassfile, params['LBOX'], params['H0'], params['UNITLENGTH_IN_CM'])
-    call(["rm", "-f", output_glassfile])
-    print("...done.\n")
-
 if params['NMESH'] == 0:
-
-    #generating paramfiles
-    paramfile_name=len(Nsample_tab)*[None]
-    if params['LOCAL_EXECUTION'] < 2:
-        for i in range(0,len(Nsample_tab)):
-            paramfile_name[i] = params['OUTDIR'] + params['FILEBASE'] + "_%i" % i + ".param"
-            if params['ICGENERATORTYPE'] == 0:
-                Write_2LPTic_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'] + "_%i" % i, params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],params['PHASE_SHIFT_ENABLED'],params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'], renormalizeinputspectrum)
-            elif params['ICGENERATORTYPE'] == 1:
-                Write_NgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'] + "_%i" % i, params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], renormalizeinputspectrum, params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],params['PHASE_SHIFT_ENABLED'],params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'])
-            elif params['ICGENERATORTYPE'] == 2:
-                Write_LgenIC_paramfile(paramfile_name[i], Nsample_tab[i], Nsample_tab[i], params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'] + "_%i" % i, params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],params['PHASE_SHIFT_ENABLED'],params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'])
-            else:
-                print("Error: unkown IC generator!\nExiting.\n")
-                sys.exit(2)
-    if params['LOCAL_EXECUTION'] == 2:
-        for i in range(0,len(Nsample_tab)):
-            paramfile_name[i] = params['OUTDIR'] + params['FILEBASE'] + "_%i" % i + ".param"
-    #generating the ICs
-    if params['LOCAL_EXECUTION'] == 1:
-        for i in range(0,len(Nsample_tab)):
-            print("\n--------------------------------\nExecuting:\n " + "mpirun " + params['EXECUTABLE'] + " " + paramfile_name[i] + "\nNsample=%i\n\n" % Nsample_tab[i])
-            print("\t(Estimated memory equirement:\t%.3fGb)\n" % ((16*Nsample_tab[i]**3+Npart*8*6)/1024**3))
-            call(["mpirun", "-n", str(params['MPITASKS']), params['EXECUTABLE'], paramfile_name[i]])
-    if params['LOCAL_EXECUTION'] == 0:
-        for i in range(0,len(Nsample_tab)):
-            print("\nCall the IC generator by:\n\t$" + "mpirun " + "-np " + str(params['MPITASKS']) + " " +str(params['EXECUTABLE']) + " " + str(paramfile_name[i]))
-            print("\t(Estimated memory equirement:\t%.3fGb)\n" % ((16*Nsample_tab[i]**3+Npart*8*6)/1024**3))
-        print("Then restart this script with LOCAL_EXECUTION option set to 2.\nExiting...")
-        exit()
-    #Calculating the displacement field for every NSAMPLE:
-    print("Calculating the displacement and velocity field for every Nsample...")
-    Disp_field = np.zeros( ( params['NGRIDSAMPLES'], Npart, 3), dtype=np.float32)
-    Vel_field = np.zeros( ( params['NGRIDSAMPLES'], Npart, 3), dtype=np.float32)
-    for i in range(0,len(Nsample_tab)):
-        print("    i=%i\tNsample=%i" % (i,Nsample_tab[i]))
-        X_tmp = np.zeros( (Npart,3), dtype=np.float32)
-        V_tmp = np.zeros( (Npart,3), dtype=np.float32)
-        if params['MPITASKS'] == 1:
-            #reading only 1 gadget file
-            if params['ICGENERATORTYPE'] == 2:
-                filename = params['OUTDIR'] + params['FILEBASE'] + "_%i" % i + ".0"
-            else:
-                filename = params['OUTDIR'] + params['FILEBASE'] + "_%i" % i
-            if exists(filename):
-                print("    Loading the " + filename + " file...")
-                snapshot = glio.GadgetSnapshot(filename)
-                snapshot.load()
-                X_tmp = snapshot.pos[1] / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
-                V_tmp = snapshot.vel[1]
-            else:
-                print("Error: the " + filename + " file does not exist. Exiting...")
-                exit(-3)
+    # Generating multiple ICs with different resolutions
+    output_fname = len(mass_nsample_lut) * [None]
+    for i in range(len(mass_nsample_lut)):
+        output_path = os.path.join(params['OUTDIR'], params['FILEBASE'])
+        output_fname[i] = f"{output_path}_{i}.npy"
+        if params['ICGENERATORTYPE'].lower() == 'za':
+            # Use Zel'dovich approximation
+            pass
+        elif params['ICGENERATORTYPE'].lower() == '2lpt':
+            # Use 2nd order Lagrangian perturbation theory
+            pass
         else:
-            #reading multiple gadget file
-            for j in range(0,params['MPITASKS']):
-                filename = params['OUTDIR'] + params['FILEBASE'] + "_%i" % i + ".%i" % j
-                if exists(filename):
-                    print("    Loading the " + filename + " file...")
-                    snapshot = glio.GadgetSnapshot(filename)
-                    snapshot.load()
-                    N_in_this_file=snapshot.header.npart[1]
-                    for k in range(0,N_in_this_file):
-                        #The IDs are shifted with 1
-                        index_of_this_particle=snapshot.ID[1][k]-1
-                        X_tmp[index_of_this_particle] = snapshot.pos[1][k] / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
-                        V_tmp[index_of_this_particle] = snapshot.vel[1][k]
-                else:
-                    print("Error: the " + filename + " file does not exist. Exiting...")
-                    exit(-3)
+            raise ValueError(f"Unknown IC generator type: {params['ICGENERATORTYPE']}\nExiting.")
 
-        print("    ...done.\n    Calculating the displacement field...")
-        Disp_field[i,:,:] = X_tmp-input_glass[:,0:3]
-        # for j in range(0,Npart):
-        #     for k in range(0,3):
-        #         if np.absolute(Disp_field[i,j,k]) >= params['LBOX']/2.0:
-        #             if Disp_field[i,j,k]>0:
-        #                 Disp_field[i,j,k] -= params['LBOX']
-        #             else:
-        #                 Disp_field[i,j,k] += params['LBOX']
-        Disp_field % params['LBOX']
-        print("    Average displacement: %f Mpc" %  np.mean(np.sqrt(Disp_field[i,:,0]**2 + Disp_field[i,:,1]**2 + Disp_field[i,:,2]**2)))
-        print("    Maximal displacement: %f Mpc" % np.max(np.sqrt(Disp_field[i,:,0]**2 + Disp_field[i,:,1]**2 + Disp_field[i,:,2]**2)))
-        print("    ...done.\n    Calculating the velocity field...")
-        Vel_field[i,:,:] = V_tmp #saving in km/s
-        print("    Average velocity: %f km/s" % (np.mean(np.sqrt(Vel_field[i,:,0]**2 + Vel_field[i,:,1]**2 + Vel_field[i,:,2]**2))))
+    # Calculating the displacement field for every grid
+    print("Calculating the displacement and velocity field for every grid...")
+    dis_field = np.zeros((params['NGRIDSAMPLES'], ic.N_part, 3), dtype=np.float32)
+    vel_field = np.zeros((params['NGRIDSAMPLES'], ic.N_part, 3), dtype=np.float32)
+    
+    for i, nsample in enumerate(mass_nsample_lut):
+        print(f"    i={i}\tNsample={nsample}")
+        ic_pert = CosmoData(SnapshotIO().load_snapshot(output_fname[i]))
+        X_tmp = ic_pert.pos / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
+        V_tmp = ic_pert.vel
+        print("    Calculating the displacement field...")
+        dis_field[i, :, :] = (X_tmp - ic_orig.pos) % params['LBOX']
+        disp_mag = np.linalg.norm(dis_field[i, :, :], axis=1)
+        print(f"    Average displacement: {np.mean(disp_mag):.4f} Mpc")
+        print(f"    Maximal displacement: {np.max(disp_mag):.4f} Mpc")
         print("    ...done.\n")
-    print("...done\n")
+        print("    Calculating the velocity field...")
+        vel_field[i, :, :] = V_tmp  # [km/s]
+        vel_mag = np.linalg.norm(vel_field[i, :, :], axis=1)
+        print(f"    Average velocity: {np.mean(vel_mag):.4f} km/s")
+        print("    ...done.\n")
     del(V_tmp)
     del(X_tmp)
+    print("...done.\n")
     print("Interpolating between the different Nsamples and generating the final IC...")
-    IC = np.zeros((Npart,7))
-    IC[:,6] = original_glass[:,6] #masses
-    for i in range(0,Npart):
-        for k in range(0,3):
-            #interpolation in the coordinate-space
-            IC[i,k] = original_glass[i,k] + np.interp(IC[i,6],Mass_tab,Disp_field[:,i,k])
-            #interpolation in the velocity-space
-            IC[i,k+3] = original_glass[i,k+3] + np.interp(IC[i,6],Mass_tab,Vel_field[:,i,k])
+    ic = np.zeros_like(ic_orig.data)
+    IC[:, 6] = ic_orig[:, 6] #masses
+    #interpolation in the coordinate-space
+    IC[:, 0:3] = ic_orig[:, 0:3] + np.interp(IC[:, 6], mass_nsample_lut, dis_field)
+    #interpolation in the velocity-space
+    IC[:, 3:6] = ic_orig[:, 3:6] + np.interp(IC[:, 6], mass_nsample_lut, vel_field)
     print("...done\n")
 else:
     #In this case, the script only generates one displacement field
+    output_fname = f"{os.path.join(params['OUTDIR'], params['FILEBASE'])}.npy"
+    n_sample = np.uint32(np.ceil(np.cbrt(ic_orig/np.min(Mass_list))))
+    if n_sample > params['NMESH']:
+        print(f"Warning: Nsample (={n_sample}) > Nmesh (={params['NMESH']}). \
+                Setting Nsample to {params['NMESH']}.")
+        n_sample = params['NMESH']
+    if params['ICGENERATORTYPE'].lower() == 'za':
+        # Use Zel'dovich approximation
+        pass
+    elif params['ICGENERATORTYPE'].lower() == '2lpt':
+        # Use 2nd order Lagrangian perturbation theory
+        pass
+    else:
+        raise ValueError(f"Unknown IC generator type: {params['ICGENERATORTYPE']}\nExiting.")
+    
     if params['LOCAL_EXECUTION'] < 2:
         paramfile_name = params['OUTDIR'] + params['FILEBASE'] + ".param"
         Nsample = np.uint32(np.ceil(np.cbrt(M_tot_box/np.min(Mass_list))))
