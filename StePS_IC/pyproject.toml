@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stepsic"
+version = "2.0.0"
+authors = [
+  { name = "Gabor Racz", email = "gabor.racz@helsinki.fi" },
+  { name = "Balazs Pal", email = "pal.balazs@ttk.elte.hu" }
+]
+description = "StePS initial-condition generator"
+readme = "README.md"
+license-file = "LICENSE"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy",
+  "h5py",
+  "scipy",
+  "astropy",
+  "camb",
+  "colossus",
+  "pynverse",
+  "pygadgetreader",
+  "glio"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/eltevo/StePS/"
