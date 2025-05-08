@@ -34,6 +34,8 @@ class CosmoData:
         Indices of the vx, vy, vz columns in the data array.
     midx : int, optional; default=6
         Index of the mass column in the data array.
+    silent : bool, optional; default=False
+        If True, suppresses output messages.
     '''
     def __init__(self, data, idx=0, cidx=(1, 2, 3), vidx=(4, 5, 6), midx=6,
                  silent=False):
@@ -47,6 +49,30 @@ class CosmoData:
         self.N_part = data.shape[0]  # Number of particles
         self.mass_list = None        # List of unique particle masses
         self.M_box = None            # Total mass in the box (in Msol)
+
+    def deep_copy(self):
+        '''Deep copy of the object'''
+        new = self.__class__.__new__(self.__class__)
+        new.id        = self.id.copy()
+        new.pos       = self.pos.copy()
+        new.vel       = self.vel.copy()
+        new.mass      = self.mass.copy()
+        new.silent    = self.silent
+
+        new.N_part    = self.N_part
+        new.mass_list = (
+            self.mass_list.copy() if self.mass_list is not None else None
+        )
+        new.M_box     = self.M_box
+        return new
+
+    def __deepcopy__(self, memo):
+        '''Standard hook for copy.deepcopy(object)'''
+        if id(self) in memo:
+            return memo[id(self)]
+        dup = self.deep_copy()
+        memo[id(self)] = dup
+        return dup
 
     def rescale_snapshot_mass(self, params):
         '''
@@ -64,15 +90,18 @@ class CosmoData:
         V_sim = 4.0*np.pi/3.0 * params['RSIM']**3
         omegam_box = (M_tot / V_sim) / params['RHO_CRIT']
         if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
-            print(f"The cosmological Omega_m parameter, calculated from \
-                  the particle masses: Omega_m={omegam_box:.6f}")
+            if not self.silent:
+                print(f"The cosmological Omega_m parameter, calculated from \
+                      the particle masses: Omega_m={omegam_box:.6f}")
         else:
             self.mass *= params['OMEGAM'] / omegam_box
-            print(f"The particle masses were rescaled to fit with the \
-                  cosmological parameter Omega_m={params['OMEGAM']}")
+            if not self.silent:
+                print(f"The particle masses were rescaled to fit with the \
+                      cosmological parameter Omega_m={params['OMEGAM']}")
         # Calculate mass statistics after rescaling
         self.mass_list = np.unique(self.mass)
-        print(f"Number of different masses:\t{len(self.mass_list)}")
+        if not self.silent:
+            print(f"Number of different masses:\t{len(self.mass_list)}")
         self.M_box = params['RHO_MEAN'] * params['LBOX']**3
         print("...done.\n")
 
