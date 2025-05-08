@@ -32,7 +32,7 @@ from stepsic.parameters import CosmoParameters
 from stepsic.inputoutput import SnapshotIO
 from stepsic.data import CosmoData
 from stepsic.powerspec import generate_camb
-from stepsic.stereographic import calculate_rlimits_i, calculate_rlimits_i_cvol, calculate_r_i, create_mass_nsample_lut
+from stepsic.stereographic import SphericalLinear, SphericalConstantVolume, CylindricalLinear, CylindricalConstantVolume, create_mass_nsample_lut
 from stepsic.perturbation import zeldovich, twolpt
 
 # StePS internal units
@@ -106,6 +106,50 @@ def main():
         # StePS simulations.
         mass_nsample_lut = create_mass_nsample_lut(
                     params['NGRIDSAMPLES'], ic_orig.mass_list, ic_orig.M_box)
+        output_fname = len(mass_nsample_lut) * [None]
+        for i in range(len(mass_nsample_lut)):
+            output_path = os.path.join(params['OUTDIR'], params['FILEBASE'])
+            output_fname[i] = f"{output_path}_{i}.npy"
+            if params['ICGENERATORTYPE'].lower() == 'za':
+                # Use Zel'dovich approximation
+                pass
+            elif params['ICGENERATORTYPE'].lower() == '2lpt':
+                # Use 2nd order Lagrangian perturbation theory
+                pass
+            else:
+                raise ValueError(f"Unknown IC generator type: {params['ICGENERATORTYPE']}\nExiting.")
+
+        # Calculating the displacement field for every grid
+        print("Calculating the displacement and velocity field for every grid...")
+        dis_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
+        vel_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
+        
+        for i, nsample in enumerate(mass_nsample_lut):
+            print(f"    i={i}\tNsample={nsample}")
+            ic_pert = CosmoData(SnapshotIO().load_snapshot(output_fname[i]))
+            X_tmp = ic_pert.pos / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
+            V_tmp = ic_pert.vel
+            print("    Calculating the displacement field...")
+            dis_field[i, :, :] = (X_tmp - ic_orig.pos) % params['LBOX']
+            disp_mag = np.linalg.norm(dis_field[i, :, :], axis=1)
+            print(f"    Average displacement: {np.mean(disp_mag):.4f} Mpc")
+            print(f"    Maximal displacement: {np.max(disp_mag):.4f} Mpc")
+            print("    ...done.\n")
+            print("    Calculating the velocity field...")
+            vel_field[i, :, :] = V_tmp  # [km/s]
+            vel_mag = np.linalg.norm(vel_field[i, :, :], axis=1)
+            print(f"    Average velocity: {np.mean(vel_mag):.4f} km/s")
+            print("    ...done.\n")
+        del(V_tmp)
+        del(X_tmp)
+        print("...done.\n")
+        print("Interpolating between the different Nsamples and generating the final IC...")
+        ic = ic_orig.copy()
+        #interpolation in the coordinate-space
+        ic.pos += np.interp(ic_orig[:, 6], mass_nsample_lut, dis_field)
+        #interpolation in the velocity-space
+        ic.vel += np.interp(ic_orig[:, 6], mass_nsample_lut, vel_field)
+        print("...done.\n")
     else:
         # If the number of mesh points is specified, the script will
         # generate a single IC with a grid of the specified resolution.
@@ -122,52 +166,7 @@ if __name__ == "__main__":
 
 #*******************************************************************************#
 if params['NMESH'] == 0:
-    # Generating multiple ICs with different resolutions
-    output_fname = len(mass_nsample_lut) * [None]
-    for i in range(len(mass_nsample_lut)):
-        output_path = os.path.join(params['OUTDIR'], params['FILEBASE'])
-        output_fname[i] = f"{output_path}_{i}.npy"
-        if params['ICGENERATORTYPE'].lower() == 'za':
-            # Use Zel'dovich approximation
-            pass
-        elif params['ICGENERATORTYPE'].lower() == '2lpt':
-            # Use 2nd order Lagrangian perturbation theory
-            pass
-        else:
-            raise ValueError(f"Unknown IC generator type: {params['ICGENERATORTYPE']}\nExiting.")
-
-    # Calculating the displacement field for every grid
-    print("Calculating the displacement and velocity field for every grid...")
-    dis_field = np.zeros((params['NGRIDSAMPLES'], ic.N_part, 3), dtype=np.float32)
-    vel_field = np.zeros((params['NGRIDSAMPLES'], ic.N_part, 3), dtype=np.float32)
-    
-    for i, nsample in enumerate(mass_nsample_lut):
-        print(f"    i={i}\tNsample={nsample}")
-        ic_pert = CosmoData(SnapshotIO().load_snapshot(output_fname[i]))
-        X_tmp = ic_pert.pos / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
-        V_tmp = ic_pert.vel
-        print("    Calculating the displacement field...")
-        dis_field[i, :, :] = (X_tmp - ic_orig.pos) % params['LBOX']
-        disp_mag = np.linalg.norm(dis_field[i, :, :], axis=1)
-        print(f"    Average displacement: {np.mean(disp_mag):.4f} Mpc")
-        print(f"    Maximal displacement: {np.max(disp_mag):.4f} Mpc")
-        print("    ...done.\n")
-        print("    Calculating the velocity field...")
-        vel_field[i, :, :] = V_tmp  # [km/s]
-        vel_mag = np.linalg.norm(vel_field[i, :, :], axis=1)
-        print(f"    Average velocity: {np.mean(vel_mag):.4f} km/s")
-        print("    ...done.\n")
-    del(V_tmp)
-    del(X_tmp)
-    print("...done.\n")
-    print("Interpolating between the different Nsamples and generating the final IC...")
-    ic = np.zeros_like(ic_orig.data)
-    IC[:, 6] = ic_orig[:, 6] #masses
-    #interpolation in the coordinate-space
-    IC[:, 0:3] = ic_orig[:, 0:3] + np.interp(IC[:, 6], mass_nsample_lut, dis_field)
-    #interpolation in the velocity-space
-    IC[:, 3:6] = ic_orig[:, 3:6] + np.interp(IC[:, 6], mass_nsample_lut, vel_field)
-    print("...done\n")
+    pass
 else:
     #In this case, the script only generates one displacement field
     output_fname = f"{os.path.join(params['OUTDIR'], params['FILEBASE'])}.npy"
@@ -195,8 +194,6 @@ else:
             Write_2LPTic_paramfile(paramfile_name, params['NMESH'], Nsample, params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'], params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'], params['PHASE_SHIFT_ENABLED'], params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'], renormalizeinputspectrum)
         elif params['ICGENERATORTYPE'] == 1:
             Write_NgenIC_paramfile(paramfile_name, params['NMESH'], Nsample, params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'], params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], renormalizeinputspectrum, params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],params['PHASE_SHIFT_ENABLED'],params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'])
-        elif params['ICGENERATORTYPE'] == 2:
-            Write_LgenIC_paramfile(paramfile_name, params['NMESH'], Nsample, params['LBOX']*UNIT_D/params['UNITLENGTH_IN_CM']*(params['H0']/100.0), params['FILEBASE'], params['OUTDIR'], gadget_glassfile, params['OMEGAM'], params['OMEGAL'], params['OMEGAB'], params['H0']/100.0, params['REDSHIFT'], params['SIGMA8'], params['SPHEREMODE'], params['WHICHSPECTRUM'], params['FILEWITHINPUTSPECTRUM'], params['SHAPEGAMMA'], params['PRIMORDIALINDEX'], params['SEED'],params['UNITLENGTH_IN_CM'],params['UNITMASS_IN_G'],params['UNITVELOCITY_IN_CM_PER_S'],params['INPUTSPECTRUM_UNITLENGTH_IN_CM'],params['PHASE_SHIFT_ENABLED'],params['PHASE_SHIFT'], params['FIXED_AMPLITUDES_ENABLED'], params['FIXED_AMPLITUDES'])
         else:
             print("Error: unkown IC generator!\nExiting.\n")
             sys.exit(2)
