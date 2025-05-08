@@ -17,7 +17,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from scipy.optimize import root_scalar
+from scipy.optimize import root
 
 
 class SphericalBinner(ABC):
@@ -38,8 +38,8 @@ class SphericalBinner(ABC):
         3D space for the i-th bin between r0 and r1.
         The formula used is:
         .. math::
-            r_i = \frac{1}{4} \frac{R_1^3 - R_0^3}{R_1^2 - R_0^2} + R_0
-        where :math:`R_0` and :math:`R_1` are the lower and upper limits
+            r_i = \frac{1}{4} \frac{r_1^3 - r_0^3}{r_1^2 - r_0^2} + r_0
+        where :math:`r_0` and :math:`r_1` are the lower and upper limits
         of the bin.
         
         Parameters:
@@ -57,36 +57,35 @@ class SphericalBinner(ABC):
         r_i = 0.25 * (r1-r0) * (r0*r0 + 2*r0*r1 + 3*r1*r1) / (r0*r0 + r0*r1 + r1*r1) + r0
         return r_i
     
-    def invert_x_minus_sin_x(y: float, *, bracket=(0.0, np.pi), tol=1e-12):
+    def invert_x_minus_sin_x(y, *, method='hybr', tol=1e-06):
         r'''
         Solve :math:`x - sin(x) = y for x` in :math:`[0, \pi]`, using
-        Brent's method.
+        a root-finding algorithm. 
 
         Parameters
         ----------
-        y : float
+        y : float or ndarray
             Target value; must satisfy :math:`0 \leq y \leq \pi`.
-        bracket : tuple of float, optional
-            Bracketing interval for the root-finder. Defaults to
-            :math:`(0, \pi)`.
+        method : str, optional
+            The method to use for root finding. Default is 'hybr'.
+            See `scipy.optimize.root` for more options.
         tol : float, optional
             Absolute tolerance for the solver.
 
         Returns
         -------
-        x : float
+        x : ndarray
             The unique solution in :math:`[0, \pi]` such that
             :math:`x - sin(x) = y`.
         '''
-        if not (0.0 <= y <= np.pi):
+        if not np.asarray((y >= 0.0) & (y <= np.pi)).all():
             raise ValueError(f"y must be in [0, Pi], got y={y}")
 
         f = lambda x: x - np.sin(x) - y
-        sol = root_scalar(f, method='brentq', bracket=bracket, xtol=tol)
-        if not sol.converged:
-            raise RuntimeError(f"Root finding did not converge for y={y}")
-
-        return sol.root
+        sol = root(f, x0=np.ones_like(y), method=method, tol=tol)
+        if not sol.success:
+            raise RuntimeError(f"Root finding failed: {sol.message}")
+        return sol.x
 
 class SphericalLinear(SphericalBinner):
     '''Equal step in angular space binning in the non-compact space'''
@@ -97,6 +96,9 @@ class SphericalLinear(SphericalBinner):
         self.d_omega = np.pi / (2 * (self.n_bins + self.last_cell_size))
 
     def r_limit(self, i):
+        '''
+        Calculate the radius limit for the i-th bin.
+        '''
         omega = i * self.d_omega
         return self.d_s * np.tan(omega)
 
@@ -127,8 +129,7 @@ class SphericalConstantVolume(SphericalBinner):
 
 
 class CylindricalBinner(ABC):
-    '''TODO
-    '''
+    '''TODO'''
     @abstractmethod
     def r_limit(self, i: int):
         '''TODO'''
@@ -142,6 +143,11 @@ class CylindricalBinner(ABC):
         '''
         Centroid of a cylindrical shell between r0 and r1 (assuming
         uniform height).
+        The formula used is:
+        .. math::
+            r_i = \frac{2}{3} \frac{r_1^3 - r_0^3}{r_1^2 - r_0^2}
+        where :math:`r_0` and :math:`r_1` are the lower and upper limits
+        of the bin.
         '''
         return 2.0/3.0 * (r1*r1*r1 - r0*r0*r0) / (r1*r1 - r0*r0)
 
