@@ -20,8 +20,6 @@ dependencies = [
   "astropy",
   "camb",
   "colossus",
-  "pynverse",
-  "pygadgetreader",
   "glio"
 ]
 
