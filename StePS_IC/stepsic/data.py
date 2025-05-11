@@ -1,7 +1,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2025 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                             #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -16,6 +16,10 @@
 
 import numpy as np
 
+# StePS internal units
+UNIT_T = 47.14829951063323      # Unit time in Gy
+UNIT_V = 20.738652969925447     # Unit velocity in km/s
+UNIT_D = 3.0856775814671917e24  # =1Mpc Unit distance in cm
 
 class CosmoData:
     '''
@@ -88,7 +92,9 @@ class CosmoData:
         print("Rescaling the particle masses to fit the cosmological parameters...")
         M_tot = np.sum(self.mass)
         V_sim = 4.0*np.pi/3.0 * params['RSIM']**3
-        omegam_box = (M_tot / V_sim) / params['RHO_CRIT']
+        rho_crit = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
+        rho_mean = params['OMEGAM']*rho_crit
+        omegam_box = (M_tot / V_sim) / rho_crit
         if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
             if not self.silent:
                 print(f"The cosmological Omega_m parameter, calculated from \
@@ -102,7 +108,7 @@ class CosmoData:
         self.mass_list = np.unique(self.mass)
         if not self.silent:
             print(f"Number of different masses:\t{len(self.mass_list)}")
-        self.M_box = params['RHO_MEAN'] * params['LBOX']**3
+        self.M_box = rho_mean * params['LBOX']**3
         print("...done.\n")
 
     def periodic_shift(self, params):
@@ -116,7 +122,6 @@ class CosmoData:
             Dictionary containing the cosmological parameters.
         '''
         print("Periodically shifting the input glass...")
-        for i, vi in enumerate(['VOIX', 'VOIY', 'VOIZ']):
-            self.pos[i] += params[vi]
-        self.pos %= params['LBOX']
+        shift = np.array([params[k] for k in ('VOIX', 'VOIY', 'VOIZ')])
+        self.pos = (self.pos + shift) % params['LBOX']
         print("...done.\n")
