@@ -1,7 +1,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2025 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                             #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -51,6 +51,46 @@ def interpolate_field(x, field, Lbox, method='linear'):
         fill_value=None  # Extrapolate using periodic wrapping if needed
     )
     return interpolator(np.mod(x, Lbox))
+
+
+def make_density_field(nmesh, Lbox, seed=None):
+    r'''TODO
+    Generate a Gaussian random overdensity field on a regular grid with
+    periodic boundaries, sampled from $P(k)$ at that resolution.
+
+    Parameters
+    ----------
+    nmesh : int
+        The number of grid points along each dimension of the mesh.
+    Lbox : float
+        The size of the simulation box in Mpc/h.
+    '''
+    return 
+
+def compute_density_field(x, nmesh, Lbox):
+    r'''
+    Compute the density field from particle positions using a
+    cloud-in-cell (CIC) method.
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, 3)
+        Particle positions in the simulation box.
+    nmesh : int
+        The number of grid points along each dimension of the mesh.
+    Lbox : float
+        The size of the simulation box in Mpc/h.
+
+    Returns
+    -------
+    density_field : ndarray of shape (nmesh, nmesh, nmesh)
+        The computed density field on a regular grid.
+    '''
+    density_field = np.zeros((nmesh, nmesh, nmesh), dtype=np.float32)
+    for i in range(x.shape[0]):
+        xi = np.floor(x[i] / Lbox * nmesh).astype(int) % nmesh
+        density_field[xi[0], xi[1], xi[2]] += 1.0
+    return density_field
 
 
 def compute_overdensity(density_field):
@@ -222,7 +262,8 @@ def zeldovich(x, Lbox, density_field, dD1, h, counter=False):
         The size of the simulation box in Mpc/h. Periodic boundary
         conditions are assumed.
     density_field : ndarray of shape (M, M, M)
-        Real-space density field from which the overdensity field is computed.
+        Real-space density field from which the overdensity field is
+        computed.
     dD1 : float
         The time derivative of the linear growth factor, $\dot{D}(t)$,
         in km/s/Mpc. This is used to compute the particle velocities.
@@ -271,11 +312,12 @@ def zeldovich(x, Lbox, density_field, dD1, h, counter=False):
     mask = kmod > 0.0  # Avoid division by zero at k=0
     xpert = np.zeros_like(x, dtype=np.float32)
     v = np.zeros_like(x, dtype=np.float32)
+    s = (nmesh, nmesh, nmesh)  # Shape of the displacement field along each axis
 
     for i, xi in enumerate(('x', 'y', 'z')):
         psi1_ki = np.zeros_like(kmod, dtype=complex)
         psi1_ki[mask] = -1j * kvec[i, mask] / (kmod[mask] ** 2) * delta_k[mask]
-        disp_field = np.fft.irfftn(psi1_ki)
+        disp_field = np.fft.irfftn(psi1_ki, s=s)
         max_disp = np.max(np.abs(disp_field))
         print(f"Maximal '{xi}' displacement: {max_disp*1000:.3f} kpc/h; "
               f"in units of mean particle separation: {max_disp * nmesh / Lbox:.3f}")
