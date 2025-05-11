@@ -3,7 +3,7 @@
 #*******************************************************************************#
 #  StePS_IC.py - An initial condition generator for                             #
 #     STEreographically Projected cosmological Simulations                      #
-#    Copyright (C) 2017-2025 Gabor Racz                                         #
+#    Copyright (C) 2017-2025 Gabor Racz, Balazs Pal                             #
 #                                                                               #
 #    This program is free software; you can redistribute it and/or modify       #
 #    it under the terms of the GNU General Public License as published by       #
@@ -27,18 +27,13 @@ from textwrap import dedent
 import astropy.units as u
 from astropy.cosmology import LambdaCDM, wCDM, w0waCDM, z_at_value
 
-from stepsic.writeparamfile import Write_2LPTic_paramfile, Write_NgenIC_paramfile, Write_LgenIC_paramfile
+import stepsic
 from stepsic.parameters import CosmoParameters
-from stepsic.inputoutput import SnapshotIO
+from stepsic.inputoutput import CosmoIO
 from stepsic.data import CosmoData
 from stepsic.powerspec import generate_camb
 from stepsic.stereographic import SphericalLinear, SphericalConstantVolume, CylindricalLinear, CylindricalConstantVolume, create_mass_nsample_lut
-from stepsic.perturbation import zeldovich, twolpt
-
-# StePS internal units
-UNIT_T = 47.14829951063323      # Unit time in Gy
-UNIT_V = 20.738652969925447     # Unit velocity in km/s
-UNIT_D = 3.0856775814671917e24  # =1Mpc Unit distance in cm
+from StePS_IC.stepsic.lpt import zeldovich, twolpt
 
 
 def header(N1:int = 97, N2:int = 66):
@@ -51,13 +46,14 @@ def header(N1:int = 97, N2:int = 66):
        |_____/ \__\___|_|    |_______________\_____(_) .__/ \__, |
                                                      | |     __/ |
                                                      |_|    |___/
-    StePS_IC.py {__version__}
+    StePS_IC.py {stepsic.__version__}
      (an IC generator python script for STEreographically Projected cosmological Simulations)
     ''')
     cop = dedent(f'''
-    Copyright (C) ({__year__}) Gabor Racz
+    Copyright (C) ({stepsic.__year__}) {', '.join(stepsic.__authors__)}
     \tJet Propulsion Laboratory, California Institute of Technology | Pasadena, CA, USA
     \tDepartment of Physics of Complex Systems, Eotvos Lorand University | Budapest, Hungary
+    \tHeavy-ion Physics Research Group, HUN-REN Wigner RCP | Budapest, Hungary
     \tDepartment of Physics & Astronomy, Johns Hopkins University | Baltimore, MD, USA
     \tDepartment of Physics, University of Helsinki | Helsinki, Finland
     ''')
@@ -84,16 +80,14 @@ def main():
     if len(sys.argv) != 2:
         raise ValueError("Error: missing yaml file!\nUsage: ./StePS_IC.py <input yaml file>\nExiting.")
     params = CosmoParameters().load_parameters(filename=sys.argv[1])
-    # Calculating the density from the cosmological parameters in simulation units
-    params['RHO_CRIT'] = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
-    params['RHO_MEAN'] = params['OMEGAM']*params['RHO_CRIT']
     # Generating the initial power spectrum with CAMB
+    # TODO: Remove
     if params['USECAMBINPUTSPECTRUM']:
         generate_camb(params)
         params['RENORMALIZEINPUTSPECTRUM'] = 0
     # Loading the input initial condition, which will potentially be
     # a cosmological glass, created by another cosmological IC generator
-    ic_orig = CosmoData(SnapshotIO().load_snapshot(params['GLASSFILE']))
+    ic_orig = CosmoData(CosmoIO().load_snapshot(params['GLASSFILE']))
     # Preprocess the input glass to prepare for the IC generation.
     # Rescale its masses to match the mean density of the universe and
     # periodically shift the particles to the center of the box.
@@ -101,15 +95,16 @@ def main():
     ic_orig.periodic_shift(params)
     if params['NMESH'] == 0:
         # If the number of mesh points is not specified, the script will
-        # generate multiple ICs with grids of different resolutions. This
-        # is the standard method to generate a variable resolution IC for
-        # StePS simulations.
+        # generate NGRIDSAMPLES number of ICs with different resolutions.
+        # This is the standard method to generate a variable resolution
+        # IC for StePS simulations.
+        # 
+        # Then it calculates the displacement and velocity fields for
+        # each grid, which are then interpolated on top of each other to
+        # create the final IC.
         mass_nsample_lut = create_mass_nsample_lut(
-                    params['NGRIDSAMPLES'], ic_orig.mass_list, ic_orig.M_box)
-        output_fname = len(mass_nsample_lut) * [None]
+                params['NGRIDSAMPLES'], ic_orig.mass_list, ic_orig.M_box)
         for i in range(len(mass_nsample_lut)):
-            output_path = os.path.join(params['OUTDIR'], params['FILEBASE'])
-            output_fname[i] = f"{output_path}_{i}.npy"
             if params['ICGENERATORTYPE'].lower() == 'za':
                 # Use Zel'dovich approximation
                 pass
@@ -124,9 +119,9 @@ def main():
         dis_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
         vel_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
         
-        for i, nsample in enumerate(mass_nsample_lut):
+        for i, (_, nsample) in enumerate(mass_nsample_lut):
             print(f"    i={i}\tNsample={nsample}")
-            ic_pert = CosmoData(SnapshotIO().load_snapshot(output_fname[i]))
+            ic_pert = CosmoData(CosmoIO().load_snapshot(output_fname[i]))
             X_tmp = ic_pert.pos / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
             V_tmp = ic_pert.vel
             print("    Calculating the displacement field...")
@@ -139,6 +134,7 @@ def main():
             vel_field[i, :, :] = V_tmp  # [km/s]
             vel_mag = np.linalg.norm(vel_field[i, :, :], axis=1)
             print(f"    Average velocity: {np.mean(vel_mag):.4f} km/s")
+            print(f"    Maximal velocity: {np.max(vel_mag):.4f} km/s")
             print("    ...done.\n")
         del(V_tmp)
         del(X_tmp)
