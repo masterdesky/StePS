@@ -20,7 +20,7 @@ import numpy as np
 
 import glio
 
-class SnapshotIO:
+class CosmoIO:
     '''
     TODO: : save functionality
     '''
