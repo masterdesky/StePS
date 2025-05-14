@@ -65,7 +65,8 @@ def make_density_field(nmesh, Lbox, seed=None):
     Lbox : float
         The size of the simulation box in Mpc/h.
     '''
-    return 
+    raise NotImplementedError
+
 
 def compute_density_field(x, nmesh, Lbox):
     r'''

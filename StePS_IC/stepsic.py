@@ -18,6 +18,7 @@
 
 import os
 import sys
+import copy
 import time
 import logging
 import numpy as np
@@ -140,7 +141,7 @@ def main():
         del(X_tmp)
         print("...done.\n")
         print("Interpolating between the different Nsamples and generating the final IC...")
-        ic = ic_orig.copy()
+        ic = copy.deepcopy(ic_orig)
         #interpolation in the coordinate-space
         ic.pos += np.interp(ic_orig[:, 6], mass_nsample_lut, dis_field)
         #interpolation in the velocity-space
