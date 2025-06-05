@@ -32,12 +32,12 @@ import stepsic
 from stepsic.parameters import CosmoParameters
 from stepsic.inputoutput import CosmoIO
 from stepsic.data import CosmoData
-from stepsic.powerspec import generate_camb
+from stepsic.cosmology import generate_camb
 from stepsic.stereographic import SphericalLinear, SphericalConstantVolume, CylindricalLinear, CylindricalConstantVolume, create_mass_nsample_lut
-from StePS_IC.stepsic.lpt import zeldovich, twolpt
+from stepsic.lpt import lpt1, lpt2
 
 
-def header(N1:int = 97, N2:int = 66):
+def header(N1: int = 97, N2: int = 66):
     art = dedent(f'''
          _____ _       _____   _____    _____ _____
         / ____| |     |  __ \ / ____|  |_   _/ ____|
@@ -105,46 +105,44 @@ def main():
         # create the final IC.
         mass_nsample_lut = create_mass_nsample_lut(
                 params['NGRIDSAMPLES'], ic_orig.mass_list, ic_orig.M_box)
-        for i in range(len(mass_nsample_lut)):
-            if params['ICGENERATORTYPE'].lower() == 'za':
-                # Use Zel'dovich approximation
-                pass
-            elif params['ICGENERATORTYPE'].lower() == '2lpt':
-                # Use 2nd order Lagrangian perturbation theory
-                pass
+        
+        print('Calculating the displacement and velocity field for every grid...')
+        dis_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
+        vel_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
+
+        for i, (_, nsample) in enumerate(mass_nsample_lut):
+            if params['ICGENERATORTYPE'].lower() == 'lpt1':
+                # Use 1st order Lagrangian PT (Zel'dovich approximation)
+                x_pert, v_pert = lpt1(
+                        ic_orig.pos, Lbox=params['LBOX'], density_field=None)
+            elif params['ICGENERATORTYPE'].lower() == 'lpt2':
+                # Use 2nd order Lagrangian PT
+                x_pert, v_pert = lpt2(
+                        ic_orig.pos, Lbox=params['LBOX'], density_field=None)
             else:
                 raise ValueError(f"Unknown IC generator type: {params['ICGENERATORTYPE']}\nExiting.")
 
-        # Calculating the displacement field for every grid
-        print("Calculating the displacement and velocity field for every grid...")
-        dis_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
-        vel_field = np.zeros((params['NGRIDSAMPLES'], ic_orig.N_part, 3), dtype=np.float32)
-        
-        for i, (_, nsample) in enumerate(mass_nsample_lut):
-            print(f"    i={i}\tNsample={nsample}")
-            ic_pert = CosmoData(CosmoIO().load_snapshot(output_fname[i]))
-            X_tmp = ic_pert.pos / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
-            V_tmp = ic_pert.vel
+            # Calculating the displacement field for every grid
+            print(f"    i={i}\t{nsample = }")
+            x_pert = x_pert / (params['H0'] / 100.0) * params['UNITLENGTH_IN_CM']/UNIT_D
             print("    Calculating the displacement field...")
-            dis_field[i, :, :] = (X_tmp - ic_orig.pos) % params['LBOX']
+            dis_field[i, :, :] = (x_pert - ic_orig.pos) % params['LBOX']
             disp_mag = np.linalg.norm(dis_field[i, :, :], axis=1)
             print(f"    Average displacement: {np.mean(disp_mag):.4f} Mpc")
             print(f"    Maximal displacement: {np.max(disp_mag):.4f} Mpc")
             print("    ...done.\n")
             print("    Calculating the velocity field...")
-            vel_field[i, :, :] = V_tmp  # [km/s]
+            vel_field[i, :, :] = v_pert  # [km/s]
             vel_mag = np.linalg.norm(vel_field[i, :, :], axis=1)
             print(f"    Average velocity: {np.mean(vel_mag):.4f} km/s")
             print(f"    Maximal velocity: {np.max(vel_mag):.4f} km/s")
             print("    ...done.\n")
-        del(V_tmp)
-        del(X_tmp)
         print("...done.\n")
         print("Interpolating between the different Nsamples and generating the final IC...")
         ic = copy.deepcopy(ic_orig)
-        #interpolation in the coordinate-space
+        # Interpolation in the coordinate-space
         ic.pos += np.interp(ic_orig[:, 6], mass_nsample_lut, dis_field)
-        #interpolation in the velocity-space
+        # Interpolation in the velocity-space
         ic.vel += np.interp(ic_orig[:, 6], mass_nsample_lut, vel_field)
         print("...done.\n")
     else:
