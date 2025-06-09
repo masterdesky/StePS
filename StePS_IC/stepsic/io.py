@@ -13,131 +13,178 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
+from __future__ import annotations
 
-import os
+import logging
+from pathlib import Path
+
 import h5py
 import numpy as np
 
-import glio
+from .data import CosmoData
+
+# Gadget IO library for reading Gadget snapshots
+# Download from https://www.github.com/masterdesky/glio
+try:
+    import glio
+except ImportError as _err:
+    glio = None
+    # _GLIO_IMPORT_ERROR = _err
+
+logger = logging.getLogger(__name__)
+
+
+class UnsupportedFormatError(RuntimeError):
+    '''Raised when CosmoIO encounters an unknown file format.'''
+
 
 class CosmoIO:
     '''
-    TODO: : save functionality
+    A stateless class for loading cosmological snapshots from various
+    formats (ASCII, HDF5, NPY, Gadget) and returning them as a
+    structured numpy array.
     '''
-    def __init__(self, silent=False):
-        self.silent = silent
-
-    def load_snapshot(self, fname, *, constant_res=False, double_precision=False):
+    @staticmethod
+    def load_snapshot(
+            fname: str,
+            *,
+            part_type: int = 1,
+            constant_res: bool = False,
+            dtype: np.dtype = np.float32
+    ):
         '''
         Loads a Gadget-format snapshot of a cosmological simulation from
-        either an ASCII, HDF5 or Gadget-format input file.
+        either an ASCII, HDF5, NPY or Gadget-format input file.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         fname : str
-            Path to the input file, containing a cosmological snapshot.
-            The file can be in ASCII, HDF5, NPY or Gadget format.
-        constant_res : bool, optional; default: False
+            Path to the *first* snapshot file on disk. All accompanying
+            parts (e.g. ``snap_001``, ``snap_002``, etc.) are detected
+            and concatenated automatically for Gadget or HDF5 inputs.
+        part_type : int
+            The particle type to load. For Gadget snapshots, this is the
+            part type index (1 for gas, 2 for dark matter, etc.). For HDF5
+            snapshots, this is the part type group (e.g. 'PartType1').
+        constant_res : bool
             If True, the snapshot is assumed to have constant mass resolution.
-        double_precision : bool, optional; default: False
-            If True, the snapshot is assumed to have double precision.
+        dtype : numpy.dtype
+            The data type to use for the snapshot. If not specified, float32 is used.
         '''
-        float_dtype = np.float64 if double_precision else np.float32
+        path = Path(fname).expanduser().resolve()
+        if not path.exists():
+            raise FileNotFoundError(path)
 
-        ext = fname.lower().split('.')[-1]
-        if ext == 'dat':
-            return self._load_ascii_snapshot(fname, float_dtype)
-        elif ext == 'hdf5':
-            return self._load_hdf5_snapshot(fname, float_dtype, constant_res)
-        elif ext == 'npy':
-            return self._load_npy_snapshot(fname, float_dtype)
-        else:   # assume Gadget binary (handles multi-part internally)
-            return self._load_gadget_snapshot(fname)
-
-    def _load_ascii_snapshot(self, fname, float_dtype):
-        if not self.silent:
-            print(f"\tReading the input ASCII file {fname} ...")
-        data = np.loadtxt(fname)
-        particleIDs = np.arange(data.shape[0], dtype=np.uint64)
-        coordinates = np.array(data[:, :3], dtype=float_dtype)
-        velocities = np.array(data[:, 3:6], dtype=float_dtype)
-        masses = np.array(data[:, 6], dtype=float_dtype)
-        if not self.silent:
-            print("\t...done.\n")
-        return np.c_[particleIDs, coordinates, velocities, masses]
+        loader = CosmoIO._find_loader(path)
+        return loader(
+            path,
+            part_type=part_type,
+            constant_res=constant_res,
+            dtype=dtype
+        )
     
-    def _load_npy_snapshot(self, fname, float_dtype):
-        if not self.silent:
-            print(f"\tReading the input NPY file {fname} …")
-        data = np.load(fname, allow_pickle=True)
+    _LOADER_MAP = {
+        ".dat": lambda p, **kw: CosmoIO._load_ascii(p, **kw),
+        ".txt": lambda p, **kw: CosmoIO._load_ascii(p, **kw),
+        ".npy": lambda p, **kw: CosmoIO._load_npy(p, **kw),
+        ".hdf5": lambda p, **kw: CosmoIO._load_hdf5(p, **kw),
+        ".h5": lambda p, **kw: CosmoIO._load_hdf5(p, **kw)
+    }
 
-        if isinstance(data, (dict, np.ndarray)) and hasattr(data, 'keys'):
-            # if it is a dict-like container saved with allow_pickle=True
-            particleIDs = np.asarray(data['ParticleIDs'], dtype=np.uint64)
-            coordinates = np.asarray(data['Coordinates'], dtype=float_dtype)
-            velocities = np.asarray(data['Velocities'], dtype=float_dtype)
-            masses = np.asarray(data['Masses'], dtype=float_dtype)
-        else:
-            # if it is a plain array with expected column ordering
-            data = np.asarray(data)
-            if data.ndim != 2 or data.shape[1] < 10:
-                raise ValueError("Unrecognised NPY snapshot format.")
-            particleIDs = data[:, 0].astype(np.uint64, copy=False)
-            coordinates = data[:, 1:4].astype(float_dtype, copy=False)
-            velocities = data[:, 4:7].astype(float_dtype, copy=False)
-            masses = data[:, 7].astype(float_dtype, copy=False)
-        if not self.silent:
-            print("\t…done.\n")
-        return np.c_[particleIDs, coordinates, velocities, masses]
+    @staticmethod
+    def _find_loader(path: Path):
+        '''Return the appropriate backend reader for ``path``.'''
+        ext = path.suffix.lower()
+        if ext in CosmoIO._LOADER_MAP:
+            return CosmoIO._LOADER_MAP[ext]
 
-    def _load_hdf5_snapshot(self, fname, float_dtype, constant_res):
-        if not self.silent:
-            print(f"\tReading the input HDF5 files ...")
-        input_path = os.path.dirname(fname)
-        input_fnames = [os.path.join(input_path, f) for f in os.listdir(input_path) if f.endswith('.hdf5')]
-        if len(input_fnames) > 1:
-            if not self.silent:
-                print("\tSnapshot is stored in multiple files.")
-            input_fnames.sort(key=lambda x: int(x.split('.')[-2]))
+        # Anything else we treat as Gadget if glio is present
+        if glio is None:
+            raise UnsupportedFormatError(
+                f"'{path.name}' has an unsupported extension and glio is not installed."
+            )
+        return CosmoIO._load_gadget
+
+    @staticmethod
+    def _load_ascii(path: Path, **kwargs):
+        '''Load a cosmological snapshot from an ASCII file.'''
+        logger.info(f"Reading ASCII file: {path}")
+        dtype = kwargs.get('dtype', np.float32)
+        data = np.loadtxt(path)
+        particleIDs = np.arange(data.shape[0], dtype=np.uint64)
+        coordinates = np.array(data[:, 1:4], dtype=dtype)
+        velocities = np.array(data[:, 4:7], dtype=dtype)
+        masses = np.array(data[:, 7], dtype=dtype)
+        logger.info("...done.")
+        return particleIDs, coordinates, velocities, masses
+
+    @staticmethod
+    def _load_npy(path: Path, **kwargs):
+        '''Load a cosmological snapshot from an NPY file.'''
+        logger.info(f"Reading NPY file: {path}")
+        dtype = kwargs.get('dtype', np.float32)
+        data = np.load(path, allow_pickle=False)
+        if isinstance(data, np.ndarray):
+            # Fall back to ASCII loader for column‑major array layout
+            return CosmoIO._load_ascii(path, **kwargs)
+        if not isinstance(data, dict):
+            raise ValueError(f"Could not interpret .npy snapshot '{path}'.")
+        return (
+            data["ParticleIDs"].astype(np.uint64, copy=False),
+            data["Coordinates"].astype(dtype, copy=False),
+            data["Velocities"].astype(dtype, copy=False),
+            data["Masses"].astype(dtype, copy=False)
+        )
+
+    @staticmethod
+    def _load_hdf5(path: Path, **kwargs):
+        '''Load a cosmological snapshot from an HDF5 file.'''
+        logger.info(f"Reading the input HDF5 files ...")
+        part_type = kwargs.get('part_type', 1)
+        dtype = kwargs.get('dtype', np.float32)
+    
+        stem = path.stem.split(".")[0]
+        files = sorted(path.parent.glob(f"{stem}*.hdf5"))
+        if not files:
+            raise FileNotFoundError(path)
         particleIDs, coordinates, velocities, masses = [], [], [], []
-        for hdf5_file in input_fnames:
-            if not self.silent:
-                print(f"\t\tOpening {hdf5_file} ...")
-            with h5py.File(hdf5_file, 'r') as f:
-                particleIDs.append(f['/PartType1/ParticleIDs'][:])
-                coordinates.append(f['/PartType1/Coordinates'][:])
-                velocities.append(f['/PartType1/Velocities'][:])
-                if constant_res:
-                    masses.append(f['/PartType1/Masses'][:])
-                else:
-                    masses.append(f['/PartType1/Masses'][:] * f['/Header'].attrs['MassTable'][1])
+        for f in files:
+            logger.info(f"Opening {f}...")
+            with h5py.File(f, "r") as hdf:
+                particleIDs.append(hdf[f'/PartType{part_type}/ParticleIDs'][:])
+                coordinates.append(hdf[f'/PartType{part_type}/Coordinates'][:])
+                velocities.append(hdf[f'/PartType{part_type}/Velocities'][:])
+                m = hdf[f'/PartType{part_type}/Masses'][:]
+                if not kwargs.get('constant_res', False):
+                    m *= hdf['/Header'].attrs['MassTable'][1]
+                masses.append(m)
         particleIDs = np.concatenate(particleIDs, dtype=np.uint64)
-        coordinates = np.concatenate(coordinates, dtype=float_dtype)
-        velocities = np.concatenate(velocities, dtype=float_dtype)
-        masses = np.concatenate(masses, dtype=float_dtype)
-        if not self.silent:
-            print("\t...done.\n")
-        return np.c_[particleIDs, coordinates, velocities, masses]
+        coordinates = np.concatenate(coordinates, dtype=dtype)
+        velocities = np.concatenate(velocities, dtype=dtype)
+        masses = np.concatenate(masses, dtype=dtype)
+        logger.info("...done.")
+        return particleIDs, coordinates, velocities, masses
 
-    def _load_gadget_snapshot(self, fname):
-        if not self.silent:
-            print(f"\tReading the input Gadget file {fname} ...")
-        s = glio.GadgetSnapshot(fname)
-        particleIDs = s.ID[1]
-        coordinates = s.pos[1]
-        velocities = s.vel[1]
-        masses = s.mass[1]
-        if not self.silent:
-            print("\t...done.\n")
-        return np.c_[particleIDs, coordinates, velocities, masses]
+    @staticmethod
+    def _load_gadget(path: Path, **kwargs):
+        '''Load a cosmological snapshot from a Gadget binary.'''
+        logger.info(f"Reading Gadget file: {path}")
+        part_type = kwargs.get('part_type', 1)
+        s = glio.GadgetSnapshot(path)
+        particleIDs = s.ID[part_type]
+        coordinates = s.pos[part_type]
+        velocities = s.vel[part_type]
+        masses = s.mass[part_type]
+        logger.info("...done.")
+        return particleIDs, coordinates, velocities, masses
 
 
-def Load_params_from_HDF5_snap(fname):
+def load_hdf5_params(path: Path):
     '''TODO
     '''
-    if not fname.lower().endswith('.hdf5'):
-        raise Exception('Error: input file {fname} is not in hdf5 format!')
-    with h5py.File(fname, 'r') as f:
+    if not path.lower().endswith('.hdf5'):
+        raise Exception('Error: input file {path} is not in hdf5 format!')
+    with h5py.File(path, 'r') as f:
         Ntot = int(f['/Header'].attrs['NumPart_Total'][1])
         z = np.double(f['/Header'].attrs['Redshift'])
         Om = np.double(f['/Header'].attrs['Omega0'])
