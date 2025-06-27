@@ -9,18 +9,18 @@ authors = [
   { name = "Gabor Racz", email = "gabor.racz@helsinki.fi" },
   { name = "Balazs Pal", email = "pal.balazs@ttk.elte.hu" }
 ]
-description = "StePS initial-condition generator"
+description = "StePS cosmological initial condition generator"
 readme = "README.md"
 license-file = "LICENSE"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
-  "numpy",
+  "toml",
   "h5py",
+  "numpy",
   "scipy",
   "astropy",
   "camb",
-  "colossus",
-  "glio"
+  "colossus"
 ]
 
 [project.urls]

@@ -1,15 +1,17 @@
-name: stepsic
+name: stepsic-dev
 channels:
+  - bccp
   - conda-forge
   - defaults
 dependencies:
-  - python=3.11
+  - python=3.6
   - toml
   - h5py
   - numpy
   - scipy
   - astropy
   - camb
+  - nbodykit
   - matplotlib
   - seaborn
   - pip
