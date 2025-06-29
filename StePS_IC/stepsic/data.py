@@ -15,6 +15,11 @@
 #*******************************************************************************#
 
 import numpy as np
+from copy import deepcopy
+
+import logging
+log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # StePS internal units
 UNIT_T = 47.14829951063323      # Unit time in Gy
@@ -38,90 +43,72 @@ class CosmoData:
         Indices of the vx, vy, vz columns in the data array.
     midx : int, optional; default=6
         Index of the mass column in the data array.
-    silent : bool, optional; default=False
-        If True, suppresses output messages.
     '''
-    def __init__(self, data, idx=0, cidx=(1, 2, 3), vidx=(4, 5, 6), midx=6,
-                 silent=False):
+    def __init__(self, data, idx=0, cidx=(1, 2, 3), vidx=(4, 5, 6), midx=6):
         self.id = data[:, idx]     # Particle IDs
         self.pos = data[:, cidx]   # Particle positions
         self.vel = data[:, vidx]   # Particle velocities
         self.mass = data[:, midx]  # Particle masses
-        self.silent = silent
     
         # Calculated values
         self.N_part = data.shape[0]  # Number of particles
         self.mass_list = None        # List of unique particle masses
         self.M_box = None            # Total mass in the box (in Msol)
 
-    def deep_copy(self):
-        '''Deep copy of the object'''
-        new = self.__class__.__new__(self.__class__)
-        new.id        = self.id.copy()
-        new.pos       = self.pos.copy()
-        new.vel       = self.vel.copy()
-        new.mass      = self.mass.copy()
-        new.silent    = self.silent
-
-        new.N_part    = self.N_part
-        new.mass_list = (
-            self.mass_list.copy() if self.mass_list is not None else None
-        )
-        new.M_box     = self.M_box
-        return new
+    def __copy__(self):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        result.__dict__.update(self.__dict__)
+        return result
 
     def __deepcopy__(self, memo):
-        '''Standard hook for copy.deepcopy(object)'''
-        if id(self) in memo:
-            return memo[id(self)]
-        dup = self.deep_copy()
-        memo[id(self)] = dup
-        return dup
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            setattr(result, k, deepcopy(v, memo))
+        return result
 
     def rescale_snapshot_mass(self, params):
         '''
         Rescale the particle masses to fit the cosmological parameters.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         params : dict
             Dictionary containing the cosmological parameters.
         midx : int, optional; default=6
             Index of the mass column in the data array.
         '''
-        print("Rescaling the particle masses to fit the cosmological parameters...")
+        log.info('Rescaling the particle masses to fit the cosmological parameters...')
         M_tot = np.sum(self.mass)
-        V_sim = 4.0*np.pi/3.0 * params['RSIM']**3
+        V_sim = 4.0*np.pi/3.0 * params['RSIM']**3  # TODO: cylindrical and cuboid geometry
         rho_crit = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
         rho_mean = params['OMEGAM']*rho_crit
         omegam_box = (M_tot / V_sim) / rho_crit
         if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
-            if not self.silent:
-                print(f"The cosmological Omega_m parameter, calculated from \
-                      the particle masses: Omega_m={omegam_box:.6f}")
+            log.info(f'The matter density parameter, calculated from the \
+                     particle masses: {omegam_box = :.6f}')
         else:
             self.mass *= params['OMEGAM'] / omegam_box
-            if not self.silent:
-                print(f"The particle masses were rescaled to fit with the \
-                      cosmological parameter Omega_m={params['OMEGAM']}")
+            log.info(f"The particle masses were rescaled to fit with the \
+                     matter density parameter omega_m = {params['OMEGAM']}")
         # Calculate mass statistics after rescaling
         self.mass_list = np.unique(self.mass)
-        if not self.silent:
-            print(f"Number of different masses:\t{len(self.mass_list)}")
-        self.M_box = rho_mean * params['LBOX']**3
-        print("...done.\n")
+        log.info(f'Number of different masses:\t{self.mass_list.size}')
+        
+        self.M_box = rho_mean * np.prod(np.broadcast_to(params['LBOX'], 3))
 
     def periodic_shift(self, params):
         '''
         Periodically shift the input glass to the desired box size and
         center it in the box.
         
-        Parameters:
-        -----------
+        Parameters
+        ----------
         params : dict
             Dictionary containing the cosmological parameters.
         '''
-        print("Periodically shifting the input glass...")
+        log.info('Periodically shifting the input glass...')
         shift = np.array([params[k] for k in ('VOIX', 'VOIY', 'VOIZ')])
-        self.pos = (self.pos + shift) % params['LBOX']
-        print("...done.\n")
+        self.pos = np.where(params['PERIODIC'], np.mod(self.pos + shift, params['LBOX']), self.pos)
