@@ -11,7 +11,6 @@ authors = [
 ]
 description = "StePS cosmological initial condition generator"
 readme = "README.md"
-license-file = "LICENSE"
 requires-python = ">=3.11"
 dependencies = [
   "toml",

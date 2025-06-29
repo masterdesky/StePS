@@ -14,12 +14,14 @@ omega_l = {best = 0.6842, mean = 0.6847, error = 0.0073}
 ns = {best = 0.96605, mean = 0.9649, error = 0.0042}
 As = {best = 2.1005e-9, mean = 2.100e-9, error = 0.030e-9}
 sigma8 = {best = 0.8120, mean = 0.8111, error = 0.0060}
-k_p = 0.05
 YHe = {best = 0.245401, mean = 0.245395, error = 0.000060}
 mnu = 0.06
 nnu = 3.046
 zrei = {best = 7.68, mean = 7.67, error = 0.73}
 Tcmb = 2.7255
+k_p = 0.05
+w0 = -1.0
+wa = 0.0
 
 # 2.18 base_plikHM_TTTEEE_lowl_lowE_lensing_post_BAO
 ["Planck2018EE+BAO"]
@@ -30,12 +32,14 @@ omega_l = {best = 0.6894, mean = 0.6889, error = 0.0056}
 ns = {best = 0.96824, mean = 0.9665, error = 0.0038}
 As = {best = 2.1073e-9, mean = 2.105e-9, error = 0.030e-9}
 sigma8 = {best = 0.8110, mean = 0.8102, error = 0.0060}
-k_p = 0.05
 YHe = {best = 0.245425, mean = 0.245414, error = 0.000055}
 mnu = 0.06
 nnu = 3.046
 zrei = {best = 7.90, mean = 7.82, error = 0.71}
 Tcmb = 2.7255
+k_p = 0.05
+w0 = -1.0
+wa = 0.0
 
 # 2.19 base_plikHM_TTTEEE_lowl_lowE_lensing_post_Pantheon
 ["Planck2018EE+SN"]
@@ -46,12 +50,14 @@ omega_l = {best = 0.6866, mean = 0.6864, error = 0.0068}
 ns = {best = 0.96654, mean = 0.9655, error = 0.0041}
 As = {best = 2.1020e-9, mean = 2.102e-9, error = 0.030e-9}
 sigma8 = {best = 0.8111, mean = 0.8108, error = 0.0060}
-k_p = 0.05
 YHe = {best = 0.245411, mean = 0.245403, error = 0.000058}
 mnu = 0.06
 nnu = 3.046
 zrei = {best = 7.75, mean = 7.73, error = 0.73}
 Tcmb = 2.7255
+k_p = 0.05
+w0 = -1.0
+wa = 0.0
 
 # 2.20 base_plikHM_TTTEEE_lowl_lowE_lensing_post_BAO_Pantheon
 ["Planck2018EE+BAO+SN"]
@@ -62,9 +68,11 @@ omega_l = {best = 0.6901, mean = 0.6897, error = 0.0054}
 ns = {best = 0.96822, mean = 0.9668, error = 0.0037}
 As = {best = 2.1064e-9, mean = 2.105e-9, error = 0.030e-9}
 sigma8 = {best = 0.8105, mean = 0.8100, error = 0.0060}
-k_p = 0.05
 YHe = {best = 0.245421, mean = 0.245418, error = 0.000054}
 mnu = 0.06
 nnu = 3.046
 zrei = {best = 7.89, mean = 7.85, error = 0.70}
 Tcmb = 2.7255
+k_p = 0.05
+w0 = -1.0
+wa = 0.0

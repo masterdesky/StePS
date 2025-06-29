@@ -1,0 +1,53 @@
+# Parameters for stepsic
+
+
+# IC parameters
+GEOMETRY = "cylindrical"     # Geometry of the simulation, options: "cylindrical", "spherical", "cubical"
+NMESH = 128                  # Number of mesh points in the along the shortest dimension of the box. Other dimensions will be scaled accordingly.
+LBOX = [ 2000, 2000, 2000 ]  # Box dimensions in [Mpc/h]. You can use a single scalar to define a cubical box, or an array in the form of [Lx, Ly, Lz] for any rectangular cuboid.
+PERIODIC = [ 0, 0, 0 ]       # Periodic boundary conditions in the form of [Px, Py, Pz]. 1 for periodic, 0 for non-periodic. You can use a single scalar to set periodicity for all dimensions at once.
+REDSHIFT = 63                # Target redshift of the IC generation.
+
+# Stereographic projection parameters
+R_3D = 1000                 # Radius of the simulated volume in Mpc/h in the Euclidean space. 
+D_4D = 105                  # Diameter of the compactified sphere in Mpc/h in the stereographic projection.
+BINMODE = "omega"           # Mode of the binning, options: "omega", "volume"
+
+# IO parameters
+INPUT_GLASS = "input/glass.hdf5"  # Path to the input glass file. If not provided, a glass will be generated. See "IC generation parameters" below for that.
+
+OUTPUT_DIR = "output"        # Directory where the IC files will be saved
+OUTPUT_PREFIX = "stepsic"    # Prefix for the output files
+OUTPUT_FORMAT = "hdf5"       # Output file format, options: "hdf5", "npy" "gadget", "ascii"
+
+# IC generation parameters
+TYPE = "grid"                # Type of the IC generation, options: "grid", "glass"
+# NPART = 32768                # Number of particles in the simulation. This is the total number of particles, not per dimension. Overwrites NMESH, when "random" is used.
+LPTORDER = 2                 # Order of the LPT used for the IC generation. Options: 1, 2, 3. Higher orders are not supported yet.
+
+# Cosmology parameters
+# By default, we use parameters from table 2.20 of the Planck 2018 results
+# https://wiki.cosmos.esa.int/planck-legacy-archive/images/b/be/Baseline_params_table_2018_68pc.pdf
+# Check `cosmology.toml` for the possible values for `cosmology`
+
+cosmology = "Planck2018EE+BAO+SN"
+
+# To overwrite the default cosmology parameters, uncomment the following lines and set your values
+# Base parameters
+# H0 = 67.742         # 
+# omega_m = 0.3099    # 
+# omega_b = 0.048891  # 
+# omega_l = 0.6901    # 
+# ns = 0.96822        # 
+# As = 2.1064e-9      # 
+# sigma8 = 0.8105     # 
+# Additional species and thermal history
+# YHe = 0.245421      # 
+# mnu = 0.06          # 
+# nnu = 3.046         # 
+# zrei = 7.89         # 
+# Tcmb = 2.7255       # 
+# Dark energy EoS parameters
+# k_p = 0.05          # Pivot scale in Mpc^-1
+# w0 = -1.0           # 
+# wa = 0.0            # 
