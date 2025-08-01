@@ -14,10 +14,14 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import numpy as np
 from scipy.optimize import root
+
+import logging
+log = logging.getLogger(__name__)
 
 
 class SphericalBinner(ABC):
@@ -183,47 +187,3 @@ class CylindricalConstantVolume(CylindricalBinner):
         r1 = self.r_limit(i+1)
         # centroid of a planar annulus
         return self.centroid(r0, r1)
-
-
-def create_mass_nsample_lut(n_grid_samples, mass_list, M_box):
-    '''
-    Creates a lookup table for the number of samples per mass bin
-    for a variable resolution grid in a regular StePS simulation.
-
-    Parameters:
-    -----------
-    n_grid_samples : int
-        Number of grids with different resolutions.
-    mass_list : ndarray
-        Array containing the unique particle masses.
-    M_box : float
-        Total mass in the simulation box (in Msol).
-
-    Returns:
-    --------
-    mass_nsample_lut : ndarray of shape (n_grid_samples, 2)
-        Lookup table for the number of samples per mass bin. The first column
-        contains the unique mass values, and the second column contains the
-        corresponding number of samples for each mass bin.
-    '''
-    
-    mass_nsample = np.c_[
-        np.double(mass_list),
-        np.uint32(np.cbrt(M_box / mass_list))
-    ]
-    mass_nsample_lut = np.zeros((n_grid_samples, 2), dtype=np.uint32)
-    d_nsample = np.uint32(np.ceil(len(mass_list) / n_grid_samples))
-    
-    print("The generated Nsample list:")
-    print("ID\tNsample\tMass(in 10e11Msol)")
-    # Populate lookup table by starting with the outermost mass bin,
-    # while skipping the innermost layer
-    mass_nsample_sorted = sorted(mass_nsample, key=lambda x: x[0])
-    for si in reversed(range(n_grid_samples-1)):
-        if si == n_grid_samples-2:
-            idx = 0
-        else:
-            idx = len(mass_nsample_sorted) - 1 - si*d_nsample
-        mass_nsample_lut[si] = mass_nsample_sorted[idx]
-        print(f"{si}\t{mass_nsample_lut[si, 0]}\t{mass_nsample_lut[si, 1]/1e11:.6f}")
-    return mass_nsample_lut

@@ -15,12 +15,33 @@
 #*******************************************************************************#
 
 import numpy as np
+from tabulate import tabulate
 from scipy.interpolate import RegularGridInterpolator, CubicSpline
 
 from stepsic.random import RNG
 
 import logging
 log = logging.getLogger(__name__)
+
+
+def wrap(x, Lbox):
+    '''
+    Wraps the coordinates in ``x`` to be within the periodic box defined
+    by ``Lbox``.
+
+    Parameters
+    ----------
+    x : ndarray of shape (N, 3)
+        The coordinates to wrap.
+    Lbox : ndarray of shape (3,)
+        The size of the periodic box in each dimension.
+
+    Returns
+    -------
+    wrapped : ndarray
+        The wrapped coordinates.
+    '''
+    return np.mod(x+Lbox/2, Lbox) - Lbox/2
 
 
 def interpolate_field(x, field, dk, method='linear'):
@@ -49,7 +70,7 @@ def interpolate_field(x, field, dk, method='linear'):
         Field values interpolated at the particle positions.
     '''
     nvox = field.shape
-    mesh = tuple(np.arange(dk/2, n*dk+dk/2, dk) for n in nvox)
+    mesh = tuple(np.arange(-(n-1)*dk/2, n*dk/2, dk) for n in nvox)
     interpolator = RegularGridInterpolator(
         points=mesh,
         values=field,
@@ -82,7 +103,7 @@ def create_grid(nvox, dk):
         The grid coordinates in each dimension, where Nx, Ny, Nz are the
         number of voxels in each dimension.
     '''
-    mesh = [np.arange(-(n-1)*dk/2, n*dk/2, dk) for n in nvox]
+    mesh = tuple(np.arange(-(n-1)*dk/2, n*dk/2, dk) for n in nvox)
     xx, yy, zz = np.meshgrid(*mesh, indexing='ij')
     particles = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], axis=1)
     return particles, np.array((xx, yy, zz))
@@ -270,3 +291,40 @@ def generate_delta_k(kh, pk, nvox, dk, *, field=None, seed=None):
 
     # Sirko 2005; Bagla & Padmanabhan 1997; Klypin & Holtzman 1997
     return field * np.sqrt(pk_grid / dk**3)
+
+def create_nres_mass_map(n_grid_samples, mass_list, M_box, Lbox):
+    '''
+    Creates a lookup table for the number of voxels per mass bin
+    for a variable resolution grid in a regular StePS simulation.
+
+    Parameters:
+    -----------
+    n_grid_samples : int
+        Number of grids with different resolutions.
+    mass_list : ndarray
+        Array containing the sorted unique particle masses.
+    M_box : float
+        Total mass in the simulation box (in 1e11 Msol).
+    Lbox : ndarray
+        Box dimensions in [Mpc]. Can be a single scalar for a cubical box or
+        an array in the form of `[Lx, Ly, Lz]` for a rectangular cuboid.
+
+    Returns:
+    --------
+    nres_tab : ndarray of shape (n_grid_samples,)
+        Array containing the number of resolution elements for each grid.
+    mass_tab : ndarray of shape (n_grid_samples,)
+        Array containing the mass values corresponding to each grid.
+    '''
+    nres_list = np.min(Lbox) // np.cbrt(np.prod(Lbox) * mass_list / M_box)
+    idx = np.linspace(
+        0, mass_list.size - 1, n_grid_samples, endpoint=True, dtype=int)
+    
+    # Populate lookup table by starting with the outermost mass bin
+    nres_tab = nres_list[idx[::-1]]
+    mass_tab = mass_list[idx[::-1]]
+
+    log.info('The generated resolution-mass map:')
+    print(tabulate([*zip(nres_tab, mass_tab)],
+                   headers=['Resolution', 'Mass [1e11Msol]'], floatfmt='.0f'))
+    return nres_tab, mass_tab

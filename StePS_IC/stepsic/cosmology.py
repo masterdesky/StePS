@@ -30,12 +30,12 @@ def hubble_a(a, H0, omega_m, omega_l):
     The Hubble parameter is given by
 
     .. math::
-        H(a) = H_0\,\sqrt{\omega_m\,a^3 + (1 - \omega_m - \omega_\Lambda)\,a^2 + \omega_\Lambda},
+        H(a) = H_0\,\sqrt{\Omega_m\,a^3 + (1 - \Omega_m - \Omega_\Lambda)\,a^2 + \Omega_\Lambda},
 
-    where :math:`a` is the scale factor normalized to 1 at present.
-    :math:`H_0` is the Hubble constant, :math:`\omega_m` is the present-day
-    matter density parameter and :math:`\omega_\Lambda` is the present-day
-    dark energy density parameter.
+    where :math:`a` is the scale factor normalized to 1 at present. :math:`H_0`
+    is the Hubble constant, :math:`\Omega_m` is the present-day matter
+    density parameter and :math:`\Omega_\Lambda` is the present-day dark
+    energy density parameter.
 
     Parameters
     ----------
@@ -64,17 +64,16 @@ def F_omega(a, omega_m, omega_l):
     This function returns the factor :math:`F_\omega(a)`, defined by
 
     .. math::
-        F_\omega(a) = \left[\Omega(a)\right]^{0.6},
+        F_\omega(a)  = \frac{d\ln(D_1)}{d\ln(a)},
 
-    where the effective matter density parameter :math:`\Omega(a)` is
-    computed as
+    where the effective matter density parameter :math:`\omega(a)` is computed
+    as
 
     .. math::
         \Omega(a) = \frac{\omega_m}{\omega_m + a\,(1 - \omega_m - \omega_l) + \omega_l\,a^3}.
 
     :math:`F_\omega` approximates the logarithmic derivative of the linear
-    growth factor :math:`D_1` with respect to the scale factor :math:`a`,
-    i.e.
+    growth factor :math:`D_1` with respect to the scale factor :math:`a`, i.e.
 
     .. math::
         f \equiv \frac{d\ln(D_1)}{d\ln(a)}.
@@ -106,13 +105,13 @@ def F2_omega(a, omega_m, omega_l):
     This function returns the factor :math:`F2_\omega(a)`, defined by
 
     .. math::
-        F2_\omega(a) = 2\,\left[\Omega(a)\right]^{\frac{4}{7}},
+        F2_\omega(a) = \frac{d\ln(D_2)}{d\ln(a)},
 
-    where the effective matter density parameter :math:`\Omega(a)` is
-    computed as
+    where the effective matter density parameter :math:`\omega(a)` is computed
+    as
 
     .. math::
-        \Omega(a) = \frac{\omega_m}{\omega_m + a\,(1 - \omega_m - \omega_l) + \omega_l\,a^3}.
+        \omega(a) = \frac{\omega_m}{\omega_m + a\,(1 - \omega_m - \omega_l) + \omega_l\,a^3}.
 
     :math:`F2_\omega` is used in second-order Lagrangian perturbation theory
     to scale the second-order displacement field and its time derivative,
@@ -130,8 +129,7 @@ def F2_omega(a, omega_m, omega_l):
     Returns
     -------
     float
-        The second-order growth rate :math:`F2_\omega` evaluated at scale
-        factor :math:`a`.
+        The second-order growth rate :math:`F2_\omega(a)`.
     '''
     omega_a = omega_m / (omega_m + a * (1 - omega_m - omega_l) + a**3 * omega_l)
     return 2 * np.power(omega_a, 6.0/11.0)  # Bernardeau et al. 2001, eq. 101b
@@ -156,7 +154,7 @@ class ColossusCosmology:
         sigma8 : float
             RMS matter fluctuation amplitude at redshift 0.
         ns : float
-            Scalar spectrum power-law index for k_pivot = 0.05 Mpc^-1.
+            Scalar spectrum power-law index for :math:`k = 0.05\,\mathrm{Mpc}^{-1}`.
         Neff : float
             Total effective number of massive and massless neutrinos.
         w0 : float
@@ -273,8 +271,7 @@ class CAMBCosmology:
         Returns
         -------
         float
-            The RMS matter fluctuation amplitude :math:`\sigma_8` at
-            redshift :math:`z`.
+            The RMS matter fluctuation amplitude $\sigma_8$ at redshift $z$.
         '''
         self.params.InitPower.set_params(As=As, ns=ns)
         self.params.set_matter_power(redshifts=[z], kmax=kmax)
