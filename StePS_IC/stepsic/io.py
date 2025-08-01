@@ -211,12 +211,12 @@ class CosmoIO:
         ----------
         path : Path
             The file path to save the snapshot.
-        data : CosmoData
+        data : stepsic.CosmoData
             The cosmological data to save.
 
         .. Optional Parameters :
         header arguments
-            Additional parameters for the snapshot header.
+            Additional parameters for the snapshot header. TODO.
         part_type : int
             The particle type to save (e.g., 1 for dark matter in Gadget).
         dtype : numpy.dtype
