@@ -9,14 +9,14 @@ REDSHIFT = 63                # Target redshift of the IC generation.
 LPTORDER = 2                 # Order of the LPT used for the IC generation. Options: 1, 2, 3. Higher orders are not supported yet.
 COI = [ 0, 0, 0 ]            # Center of interest in Mpc. This is the point where the IC will be centered. You can use a single scalar to define a point in the center of the box, or an array in the form of `[ x, y, z ]` for any point in the box.
 
-# Stereographic projection parameters (Only relevant for cylindrical and spherical geometries)
+# Stereographic projection parameters
 R_3D = 500             # RADIUS of the simulated volume in Mpc in the Euclidean space.
 D_4D = 75              # DIAMETER of the compactified sphere in Mpc in the stereographic projection.
 BIN_MODE = "omega"     # Binning mode of the multi-resolution stereographic projection in the radial direction, options: "omega", "volume".
 NRBINS = 224           # Number of radial bins in the stereographic projection.
 
 # IO parameters
-INPUT_GLASS = "./examples/Glass_Cylindrical_Lz500_R500_DS75_N520k.hdf5"  # Path to the input glass file inserted into the middle of the simulation. If not provided, a glass will be generated. See "IC generation parameters" below for that.
+INPUT_GLASS = "../examples/Glass_Cylindrical_Lz750_R500_DS75_N790k.hdf5"  # Path to the input glass file inserted into the middle of the simulation. If not provided, a glass will be generated. See "IC generation parameters" below for that.
 # WHITE_NOISE_FILE = "example/white_noise.hdf5"  # Path to the input white noise file. If not provided, a white noise will be generated. This file should contain a 3D array of random numbers with the same shape as the mesh size defined by `NMESH`.
 
 IC_DIR = "output"      # Directory where the IC files will be saved
@@ -64,7 +64,7 @@ COSMOLOGY = "Planck2018EE+BAO+SN"
 
 # Power spectrum parameters
 SPECTRUM = "camb"   # Type of the power spectrum, options: "input", "camb".
-INPUT_SPECTRUM = "./examples/LCDM2018_input_spectrum.txt"  # Path to the file with the power spectrum. This file should be in the format of two columns: log(k) and log(P^3(k)). If `SPECTRUM` is `camb`, this file will be ignored.
+INPUT_SPECTRUM = "../examples/LCDM2018_input_spectrum.txt"  # Path to the file with the power spectrum. This file should be in the format of two columns: log(k) and log(P^3(k)). If `SPECTRUM` is `camb`, this file will be ignored.
 INPUT_SPECTRUM_UNIT_L_IN_CM = 3.085678e24
 
 # Internal units of the simulation software the IC will be generated for.
