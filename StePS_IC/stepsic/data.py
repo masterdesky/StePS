@@ -14,17 +14,20 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+from __future__ import annotations
+
+import copy
 import numpy as np
-from copy import deepcopy
+from pathlib import Path
+
+from stepsic.io import CosmoIO
+from stepsic.field import wrap
+from stepsic.units import UNIT_L, UNIT_V, UNIT_M
 
 import logging
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# StePS internal units
-UNIT_T = 47.14829951063323      # Unit time in Gy
-UNIT_V = 20.738652969925447     # Unit velocity in km/s
-UNIT_D = 3.0856775814671917e24  # =1Mpc Unit distance in cm
 
 class CosmoData:
     '''
@@ -35,25 +38,25 @@ class CosmoData:
     -----------
     data : ndarray of shape (N, 7)
         Array containing the particle data, where N is the number of particles.
-    idx : int, optional; default=0
-        Index of the particle ID column in the data array.
-    cidx : tuple, optional; default=(1, 2, 3)
-        Indices of the x, y, z columns in the data array.
-    vidx : tuple, optional; default=(4, 5, 6)
-        Indices of the vx, vy, vz columns in the data array.
-    midx : int, optional; default=6
-        Index of the mass column in the data array.
     '''
-    def __init__(self, data, idx=0, cidx=(1, 2, 3), vidx=(4, 5, 6), midx=6):
-        self.id = data[:, idx]     # Particle IDs
-        self.pos = data[:, cidx]   # Particle positions
-        self.vel = data[:, vidx]   # Particle velocities
-        self.mass = data[:, midx]  # Particle masses
-    
+    def __init__(self, id=None, pos=None, vel=None, mass=None):
+        if pos is None:
+            raise ValueError('Particle positions must be provided!')
+        if id is None:
+            id = np.arange(pos.shape[0], dtype=np.uint64)
+        if vel is None:
+            vel = np.zeros_like(pos, dtype=np.float32)
+        if mass is None:
+            mass = np.ones(pos.shape[0], dtype=np.float32)
+        self.id = id      # Particle IDs
+        self.pos = pos    # Particle positions
+        self.vel = vel    # Particle velocities
+        self.mass = mass  # Particle masses
+
         # Calculated values
-        self.N_part = data.shape[0]  # Number of particles
-        self.mass_list = None        # List of unique particle masses
-        self.M_box = None            # Total mass in the box (in Msol)
+        self.N_part = self.id.size  # Number of particles
+        self.mass_list = None       # List of unique particle masses
+        self.M_box = None           # Total mass in the box (in Msol)
 
     def __copy__(self):
         cls = self.__class__
@@ -66,8 +69,31 @@ class CosmoData:
         result = cls.__new__(cls)
         memo[id(self)] = result
         for k, v in self.__dict__.items():
-            setattr(result, k, deepcopy(v, memo))
+            setattr(result, k, copy.deepcopy(v, memo))
         return result
+    
+    def to_internal_units(self, params):
+        '''TODO'''
+        self.pos *= params['UNIT_L_IN_CM'] / UNIT_L
+        self.vel *= params['UNIT_V_IN_CM_PER_S'] / UNIT_V
+        self.mass *= params['UNIT_M_IN_G'] / UNIT_M
+
+    def from_internal_units(self, params):
+        '''TODO'''
+        self.pos /= UNIT_L / params['UNIT_L_IN_CM']
+        self.vel /= UNIT_V / params['UNIT_V_IN_CM_PER_S']
+        self.mass /= UNIT_M / params['UNIT_M_IN_G']
+
+    @classmethod
+    def load_snapshot(cls, path: Path, **io_kwargs):
+        '''Load snapshot data from a file.'''
+        ids, pos, vel, mass = CosmoIO.load_snapshot(path, **io_kwargs)
+        instance = cls(id=ids, pos=pos, vel=vel, mass=mass)
+        return instance
+    def save_snapshot(self, path: Path, **io_kwargs):
+        '''Save the snapshot data to a file.'''
+        CosmoIO.save_snapshot(path, self, **io_kwargs)
+        log.info(f'Snapshot saved to {path}.')
 
     def rescale_snapshot_mass(self, params):
         '''
@@ -82,24 +108,45 @@ class CosmoData:
         '''
         log.info('Rescaling the particle masses to fit the cosmological parameters...')
         M_tot = np.sum(self.mass)
-        V_sim = 4.0*np.pi/3.0 * params['RSIM']**3  # TODO: cylindrical and cuboid geometry
-        rho_crit = 3*params['H0']**2/(8*np.pi)/UNIT_V/UNIT_V
-        rho_mean = params['OMEGAM']*rho_crit
-        omegam_box = (M_tot / V_sim) / rho_crit
-        if np.isclose(omegam_box, params['OMEGAM'], rtol=1e-9):
-            log.info(f'The matter density parameter, calculated from the \
-                     particle masses: {omegam_box = :.6f}')
+        if params['GEOMETRY'] == 'spherical':
+            V_sim = 4/3 * params['R_3D']**3 * np.pi
+        elif params['GEOMETRY'] == 'cylindrical':
+            V_sim = params['R_3D']**2 * np.min(params['LBOX']) * np.pi
+        elif params['GEOMETRY'] == 'cubical':
+            V_sim = np.prod(params['LBOX'])
+        rho_crit = 3 * params['H0']**2 / (8*np.pi)
+        rho_mean = params['OMEGA_M'] * rho_crit
+        omega_m_box = (M_tot / V_sim) / rho_crit
+        if np.isclose(omega_m_box, params['OMEGA_M'], rtol=1e-9):
+            log.info('The matter density parameter, calculated from the ' +
+                     f'particle masses: {omega_m_box = :.6f}')
         else:
-            self.mass *= params['OMEGAM'] / omegam_box
-            log.info(f"The particle masses were rescaled to fit with the \
-                     matter density parameter omega_m = {params['OMEGAM']}")
+            self.mass *= params['OMEGA_M'] / omega_m_box
+            log.info('The particle masses were rescaled to fit with the ' +
+                     f"matter density parameter omega_m = {params['OMEGA_M']}")
+        log.info(f'Total mass in the box: {np.sum(self.mass)*1e11:.6e} Msol')
         # Calculate mass statistics after rescaling
         self.mass_list = np.unique(self.mass)
-        log.info(f'Number of different masses:\t{self.mass_list.size}')
-        
-        self.M_box = rho_mean * np.prod(np.broadcast_to(params['LBOX'], 3))
+        log.info(f'Number of different masses: {self.mass_list.size}')
+        self.M_box = rho_mean * np.prod(params['LBOX'])
 
-    def periodic_shift(self, params):
+    def center_snapshot(self, params):
+        '''
+        Shift the data to a Center-of-Interest (COI).
+        
+        Parameters
+        ----------
+        params : dict
+            Dictionary containing the cosmological parameters.
+        '''
+        log.info('Centering the particles around the Center-of-Interest...')
+        # move the particles to the center of the box
+        mask = self.pos.max(axis=0) <= np.multiply(params['LBOX'], 0.5)
+        self.pos = np.where(mask, self.pos, self.pos - np.multiply(params['LBOX'], 1.0)/2)
+        # center the particles around a Center-of-Interest
+        self.pos -= params['COI']
+
+    def periodic_shift(self, params, periodic=None):
         '''
         Periodically shift the input glass to the desired box size and
         center it in the box.
@@ -108,7 +155,11 @@ class CosmoData:
         ----------
         params : dict
             Dictionary containing the cosmological parameters.
+        periodic: ndarray, optional
+            Boolean array indicating whether the periodic boundary
+            conditions are applied in each dimension.
         '''
         log.info('Periodically shifting the input glass...')
-        shift = np.array([params[k] for k in ('VOIX', 'VOIY', 'VOIZ')])
-        self.pos = np.where(params['PERIODIC'], np.mod(self.pos + shift, params['LBOX']), self.pos)
+        if periodic is None:
+            periodic = params['PERIODIC']
+        self.pos = np.where(periodic, wrap(self.pos, params['LBOX']), self.pos)
