@@ -14,16 +14,22 @@
 #    GNU General Public License for more details.                               #
 #*******************************************************************************#
 
+import numpy as np
 import astropy.units as u
+from astropy.units import cds
 
-#G = 6.67430e-8  # Gravitational constant in cm^3 g^-1 s^-2
-G = 1
+# Gravitational constant in cm^3 g^-1 s^-2
+G = 1 * cds.G
 
-# StePS internal units
-UNIT_D_P = (1 * u.Mpc).to(u.cm)                  # Unit distance
-UNIT_T_P = 47.14829951063323 * u.Gyr             # Unit time
-UNIT_V_P = UNIT_D_P.to(u.km) / UNIT_T_P.to(u.s)  # Unit velocity
+# This IC generator uses the same internal units as the StePS simulator code
+UNIT_L = (1 * u.Mpc).to(u.cm)         # Unit distance (1 Mpc in cm)
+UNIT_M = (1e11 * u.M_sun).to(u.g)     # Unit mass (1e11 Msol in g)
+UNIT_T = np.sqrt(UNIT_L**3 / G / UNIT_M).to(u.Gyr)  # Unit time
+UNIT_V = UNIT_L / UNIT_T.to(u.s)      # Unit velocity
 
-UNIT_D = UNIT_D_P.value
-UNIT_T = UNIT_T_P.value
-UNIT_V = UNIT_V_P.value
+# Float values for the units
+G = G.value
+UNIT_L = UNIT_L.value
+UNIT_T = UNIT_T.value
+UNIT_V = UNIT_V.value
+UNIT_M = UNIT_M.value
