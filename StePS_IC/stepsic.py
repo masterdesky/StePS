@@ -109,6 +109,7 @@ def main():
             Path(params['INPUT_GLASS']), dtype=params['DTYPE'])
         ic_orig.to_internal_units(params)
         ic_orig.rescale_snapshot_mass(params)
+        ic = copy.deepcopy(ic_orig)  # The output IC will be stored here
         ic_orig.center_snapshot(params)
         ic_orig.periodic_shift(params)
     if params['TYPE'] == 'grid':
@@ -119,8 +120,6 @@ def main():
         x = create_particles(
             npart=params['NPART'], Lbox=params['LBOX'], seed=params['SEED'])
 
-    ic = copy.deepcopy(ic_orig)  # The output IC will be stored here
-    
     log.info('Calculating the displacement and velocity field...')
     if params['NMESH'] == 0:
         # If the number of mesh points is not specified, the script will
@@ -139,7 +138,7 @@ def main():
 
         for si, (res, mass) in enumerate(zip(nres_tab, mass_tab)):
             log.info(f"Generating sample {si+1}/{params['NGRIDSAMPLES']}...")
-            log.info(f"Resolution: {res} voxels, Mass: {mass:.0f} 1e11 Msol")
+            log.info(f"Resolution: {res:.0f} voxels, Mass: {mass:.6f} 1e11 Msol")
             nvox, dk = cubic_voxels(res, params['LBOX'])
             # White noise field for complete reproducibility
             field = white_noise(nvox=nvox, seed=params['SEED'])

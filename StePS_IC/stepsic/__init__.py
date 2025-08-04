@@ -10,15 +10,15 @@ __authors__ = ['Gabor Racz', 'Balazs Pal']
 
 
 def _make_header(Nart: int = 79, Ncop: int = 79, Nwar: int = 79):
-    art = dedent(f'''
-    \t       _                 _      
-    \t      | |               (_)     
-    \t   ___| |_ ___ _ __  ___ _  ___ 
-    \t  / __| __/ _ \ '_ \/ __| |/ __|
-    \t  \__ \ ||  __/ |_) \__ \ | (__ 
-    \t  |___/\__\___| .__/|___/_|\___|
-    \t              | |               
-    \t              |_|                
+    art = dedent(fr'''
+    \t     _                 _      
+    \t    | |               (_)     
+    \t ___| |_ ___ _ __  ___ _  ___ 
+    \t/ __| __/ _ \ '_ \/ __| |/ __|
+    \t\__ \ ||  __/ |_) \__ \ | (__ 
+    \t|___/\__\___| .__/|___/_|\___|
+    \t            | |               
+    \t            |_|               
     stepsic {__version__}
     \tAn IC generator python script for
     \tSTEreographically Projected cosmological Simulations
@@ -33,21 +33,22 @@ def _make_header(Nart: int = 79, Ncop: int = 79, Nwar: int = 79):
     # ''')
     cop = dedent(f'''
     Copyright (C) ({__year__}) {', '.join(__authors__)}
-    - Jet Propulsion Laboratory, California Institute of Technology
-    - Department of Physics of Complex Systems, Eotvos Lorand University
-    - Heavy-ion Physics Research Group, HUN-REN Wigner RCP
-    - Department of Physics & Astronomy, Johns Hopkins University
-    - Department of Physics, University of Helsinki
+    \tJet Propulsion Laboratory, California Institute of Technology
+    \tDepartment of Physics of Complex Systems, Eotvos Lorand University
+    \tHeavy-ion Physics Research Group, HUN-REN Wigner RCP
+    \tDepartment of Physics & Astronomy, Johns Hopkins University
+    \tDepartment of Physics, University of Helsinki
     ''')
     war = dedent(f'''
-    StePS_IC.py comes with ABSOLUTELY NO WARRANTY.
+    stepsic comes with ABSOLUTELY NO WARRANTY.
     This is free software, and you are welcome to redistribute it
     under certain conditions. See the LICENSE file for details.
     ''')
     # Define horizontal borders: +-- ... --+
     b  = lambda N: f'+{"-"*(N)}+'
     # Converts multiline string to list of lines
-    ls = lambda s: s.expandtabs(4).splitlines()[1:]
+    untab = lambda s: s.replace(r'\t', '\t')   # Replace literal `\t` with tabs
+    ls = lambda s: untab(s).expandtabs(4).splitlines()[1:]
     # Pad RHS of all lines with spaces to get them equally `N` chars wide
     T  = lambda s, N: '\n'.join([f"| {l}{' '*(N-1-len(l))}|" for l in ls(s)])
 
