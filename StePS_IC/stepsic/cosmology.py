@@ -271,23 +271,37 @@ class CAMBCosmology:
         Returns
         -------
         float
-            The RMS matter fluctuation amplitude $\sigma_8$ at redshift $z$.
+            The RMS matter fluctuation amplitude :math:`\sigma_8` at
+            redshift :math:`z`.
         '''
         self.params.InitPower.set_params(As=As, ns=ns)
         self.params.set_matter_power(redshifts=[z], kmax=kmax)
         results = camb.get_results(self.params)
         sigma8 = results.get_sigma8()[0]
-        log.info(f'RMS matter fluctuation amplitude {sigma8 = :.4f} (from {As = :.3e})')
         return sigma8
     
+    def _rescale_As(self, target_sigma8, As=2.1064e-09, ns=0.96822, kmax=1.0):
+        '''
+        Rescale the matter fluctuation amplitude :math:`A_s` such that
+        :math:`\sigma_8(z=0, A_s=\mathrm{new\_As}) = \mathrm{target\_sigma8}`.
+        '''
+        sigma8_now = self.get_sigma8(z=0, As=As, ns=ns, kmax=kmax)
+        if target_sigma8 is None or np.isclose(sigma8_now, target_sigma8, rtol=1e-4):
+            return sigma8_now, As
+        scale = (target_sigma8 / sigma8_now)**2
+        log.info(f'Rescaling matter-fluctuation amplitude by {scale:.3g}')
+        As_new = As * scale
+        sigma8_new = self.get_sigma8(z=0, As=As_new, ns=ns, kmax=kmax)
+        return sigma8_new, As_new
+
     def get_spectrum(self, *,
             z=127, As=2.1064e-09, ns=0.96822, sigma8_init=None,
-            kmin=0.01, kmax=1.0, npoints=512):
+            kmin=0.01, kmax=1.0, npoints=512, component='delta_cdm'):
         r'''
         Calculate the matter power spectrum using CAMB.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         z : float or list of float
             Redshifts at which the linear power spectrum is calculated.
         As : float
@@ -305,18 +319,20 @@ class CAMBCosmology:
             Maximum wavenumber in :math:`h^{-1}\,\mathrm{Mpc}`.
         npoints : int
             Number of wavenumber points.
+        component : str
+            The component of the power spectrum to return. Options are:
+            'delta_tot' for total matter, 'delta_cdm' for cold dark matter,
+            'delta_baryon' for baryonic matter, etc. See CAMB documentation
+            for more details.
         '''
         # Optional rescaling of the `As` amplitude to match a desired sigma8
-        if sigma8_init is not None:
-            sigma8 = self.get_sigma8(z=0, As=As, ns=ns, kmax=kmax)
-            As *= (sigma8_init / sigma8)**2
-            log.info(f'Rescaling matter fluctuation amplitude...')
-            sigma8 = self.get_sigma8(z=0, As=As, ns=ns, kmax=kmax)
+        sigma8, As = self._rescale_As(sigma8_init, As=As, ns=ns, kmax=kmax)
+        log.info(f'Value for matter fluctuation amplitude used: {sigma8 = :.4f}')
 
         # Calculating P(k) at redshift `z`
         self.params.set_matter_power(redshifts=np.atleast_1d(z).tolist(), kmax=kmax)
         results = camb.get_results(self.params)
         kh, _, pk = results.get_matter_power_spectrum(
-                                    minkh=kmin, maxkh=kmax, npoints=npoints)
+            minkh=kmin, maxkh=kmax, npoints=npoints, var1=component, var2=component)
         pk3 = pk * kh**3/(2*np.pi**2)  # Save (log(kh), log(pk3)).T for StePS/Gadget
         return kh, pk, pk3
