@@ -22,10 +22,10 @@ from astropy.units import cds
 G = 1 * cds.G
 
 # This IC generator uses the same internal units as the StePS simulator code
-UNIT_L = (1 * u.Mpc).to(u.cm)         # Unit distance (1 Mpc in cm)
-UNIT_M = (1e11 * u.M_sun).to(u.g)     # Unit mass (1e11 Msol in g)
+UNIT_L = (1 * u.Mpc).to(u.cm)                  # Unit distance (1 Mpc in cm)
+UNIT_M = (1e11 * u.M_sun).to(u.g)              # Unit mass (1e11 Msol in g)
 UNIT_T = np.sqrt(UNIT_L**3 / G / UNIT_M).to(u.Gyr)  # Unit time
-UNIT_V = UNIT_L / UNIT_T.to(u.s)      # Unit velocity
+UNIT_V = UNIT_L.to(u.km) / UNIT_T.to(u.s)      # Unit velocity
 
 # Float values for the units
 G = G.value

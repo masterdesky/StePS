@@ -2,8 +2,8 @@
 
 # IC parameters
 GEOMETRY = "cylindrical"     # Geometry of the simulation, options: "cylindrical", "spherical", "cubical".
-NMESH = 0                    # Number of mesh points along the shortest dimension of the box. Other dimensions will be scaled accordingly.
-LBOX = [ 1000, 1000, 500 ]  # Box dimensions in [Mpc]. You can use a single scalar to define a cubical box, or an array in the form of `[ Lx, Ly, Lz ]` for any rectangular cuboid.
+NMESH = 0                    # Number of mesh points along the shortest dimension of the box. Other dimensions will be scaled accordingly. Set to 0 to initiate a multiscale IC generation.
+LBOX = [ 1000, 1000, 1000 ]  # Box dimensions in [Mpc]. You can use a single scalar to define a cubical box, or an array in the form of `[ Lx, Ly, Lz ]` for any rectangular cuboid.
 PERIODIC = [ 0, 0, 1 ]       # Periodic boundary conditions in the form of `[ Px, Py, Pz ]`. `true` or `1` for periodic, `false` or `0` for non-periodic. You can use a single value to set periodicity for all dimensions at once.
 REDSHIFT = 63                # Target redshift of the IC generation.
 LPTORDER = 2                 # Order of the LPT used for the IC generation. Options: 1, 2, 3. Higher orders are not supported yet.
@@ -16,7 +16,7 @@ BIN_MODE = "omega"     # Binning mode of the multi-resolution stereographic proj
 NRBINS = 224           # Number of radial bins in the stereographic projection.
 
 # IO parameters
-INPUT_GLASS = "./examples/Glass_Cylindrical_Lz500_R500_DS75_N520k.hdf5"  # Path to the input glass file inserted into the middle of the simulation. If not provided, a glass will be generated. See "IC generation parameters" below for that.
+INPUT_GLASS = "./examples/input_glass.hdf5"  # Path to the input glass file inserted into the middle of the simulation. If not provided, a glass will be generated. See "IC generation parameters" below for that.
 # WHITE_NOISE_FILE = "example/white_noise.hdf5"  # Path to the input white noise file. If not provided, a white noise will be generated. This file should contain a 3D array of random numbers with the same shape as the mesh size defined by `NMESH`.
 
 IC_DIR = "output"      # Directory where the IC files will be saved
@@ -45,9 +45,9 @@ COSMOLOGY = "Planck2018EE+BAO+SN"
 # To overwrite the default cosmology parameters, uncomment the following lines and set your values
 ## Base parameters
 # H0 = 67.742          # 
-# OMEGA_M = 0.3099      # 
-# OMEGA_B = 0.048891    # 
-# OMEGA_L = 0.6901      # 
+# OMEGA_M = 0.3099     # 
+# OMEGA_B = 0.048891   # 
+# OMEGA_L = 0.6901     # 
 # NS = 0.96822         # 
 # AS = 2.1064e-9       # 
 # SIGMA8 = 0.8105      # 
@@ -64,11 +64,13 @@ COSMOLOGY = "Planck2018EE+BAO+SN"
 
 # Power spectrum parameters
 SPECTRUM = "camb"   # Type of the power spectrum, options: "input", "camb".
+NONLINEAR = false    # If `true`, the non-linear corrections will be applied to the power spectrum. In cosmological IC generation, this is not a valid method, as we approximate the linear regime with LPT.
+HALOFIT = "mead2020"  # Check `camb.NonLinearModel.Halofit` for possible values.
 INPUT_SPECTRUM = "./examples/LCDM2018_input_spectrum.txt"  # Path to the file with the power spectrum. This file should be in the format of two columns: log(k) and log(P^3(k)). If `SPECTRUM` is `camb`, this file will be ignored.
 INPUT_SPECTRUM_UNIT_L_IN_CM = 3.085678e24
 
 # Internal units of the simulation software the IC will be generated for.
 # Default values are set to the StePS internal units.
-UNIT_L_IN_CM = 3.085678e24  # Length unit in cm, default is 1 Mpc.
-UNIT_V_IN_CM_PER_S = 2073865.2969844209  # Velocity unit in cm/s, default is the ratio of 1 Mpc and the Hubble length.
-UNIT_M_IN_G = 1.989e44  # Mass unit in g, default is 1e11 M_sun.
+UNIT_L_IN_CM = 3.085678e24           # Length unit in cm, default is 1 Mpc.
+UNIT_M_IN_G = 1.989e44               # Mass unit in g, default is 1e11 M_sun.
+UNIT_V_IN_KMPS = 20.738652969844207  # Velocity unit in km/s, default is the ratio of 1 Mpc and the Hubble length.

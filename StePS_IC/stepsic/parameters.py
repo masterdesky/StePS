@@ -22,6 +22,8 @@ import numpy as np
 from pathlib import Path
 from textwrap import dedent
 
+from stepsic.units import UNIT_V
+
 import logging
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -163,6 +165,13 @@ class CosmoParameters:
 
     def _process_ic_params(self):
         '''Process initial condition parameters from the config file.'''
+        self._check_string('GEOMETRY')
+        if self.P['GEOMETRY'] not in ['cylindrical', 'spherical', 'cubical']:
+            raise ValueError(f"Error: unknown geometry `{self.P['GEOMETRY']}`!\nExiting.")
+        self._check_string('BIN_MODE')
+        if self.P['BIN_MODE'] not in ['omega', 'volume']:
+            raise ValueError(f"Error: unknown binning mode `{self.P['BIN_MODE']}`!\nExiting.")
+
         self._check_scalar('NMESH', dtype=int)
         self._check_array_or_scalar('LBOX', length=3)
         self._check_array_or_scalar('PERIODIC', length=3, dtype=int)
@@ -175,12 +184,6 @@ class CosmoParameters:
         self._check_scalar('R_3D')
         self._check_scalar('D_4D')
         self._check_scalar('NRBINS', dtype=int)
-        self._check_string('GEOMETRY')
-        if self.P['GEOMETRY'] not in ['cylindrical', 'spherical', 'cubical']:
-            raise ValueError(f"Error: unknown geometry `{self.P['GEOMETRY']}`!\nExiting.")
-        self._check_string('BIN_MODE')
-        if self.P['BIN_MODE'] not in ['omega', 'volume']:
-            raise ValueError(f"Error: unknown binning mode `{self.P['BIN_MODE']}`!\nExiting.")
 
         self._check_string('TYPE')
         if self.P['TYPE'] not in ['grid', 'random', 'glass']:
@@ -192,7 +195,7 @@ class CosmoParameters:
         self._check_string('IC_PREFIX')
         self._check_path('IC_DIR', makedir=True)
         self._check_string('IC_FORMAT')
-        if self.P['IC_FORMAT'] not in ['ascii', 'npy', 'hdf5', 'gadget']:
+        if self.P['IC_FORMAT'] not in ['ascii', 'gadget', 'hdf5']:
             raise ValueError(f"Error: unknown output file format `{self.P['IC_FORMAT']}`!\nExiting.")
         self._check_boolean('USE_DOUBLE')
         if self.P['USE_DOUBLE']:
@@ -219,7 +222,7 @@ class CosmoParameters:
 
         self._check_scalar('UNIT_L_IN_CM')
         self._check_scalar('UNIT_M_IN_G')
-        self._check_scalar('UNIT_V_IN_CM_PER_S')
+        self._check_scalar('UNIT_V_IN_KMPS')
 
         text = dedent(f'''
         IC parameters

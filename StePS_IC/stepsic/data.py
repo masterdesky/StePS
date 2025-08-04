@@ -75,13 +75,13 @@ class CosmoData:
     def to_internal_units(self, params):
         '''TODO'''
         self.pos *= params['UNIT_L_IN_CM'] / UNIT_L
-        self.vel *= params['UNIT_V_IN_CM_PER_S'] / UNIT_V
+        self.vel *= params['UNIT_V_IN_KMPS'] / UNIT_V
         self.mass *= params['UNIT_M_IN_G'] / UNIT_M
 
     def from_internal_units(self, params):
         '''TODO'''
         self.pos /= UNIT_L / params['UNIT_L_IN_CM']
-        self.vel /= UNIT_V / params['UNIT_V_IN_CM_PER_S']
+        self.vel /= UNIT_V / params['UNIT_V_IN_KMPS']
         self.mass /= UNIT_M / params['UNIT_M_IN_G']
 
     @classmethod
@@ -114,16 +114,14 @@ class CosmoData:
             V_sim = params['R_3D']**2 * np.min(params['LBOX']) * np.pi
         elif params['GEOMETRY'] == 'cubical':
             V_sim = np.prod(params['LBOX'])
-        rho_crit = 3 * params['H0']**2 / (8*np.pi)
+        rho_crit = 3 * params['H0']**2 / (8*np.pi) / UNIT_V / UNIT_V
         rho_mean = params['OMEGA_M'] * rho_crit
         omega_m_box = (M_tot / V_sim) / rho_crit
         if np.isclose(omega_m_box, params['OMEGA_M'], rtol=1e-9):
-            log.info('The matter density parameter, calculated from the ' +
-                     f'particle masses: {omega_m_box = :.6f}')
+            log.info(f'Omega_m calculated from particle masses: {omega_m_box = :.6f}')
         else:
             self.mass *= params['OMEGA_M'] / omega_m_box
-            log.info('The particle masses were rescaled to fit with the ' +
-                     f"matter density parameter omega_m = {params['OMEGA_M']}")
+            log.info(f'Particle masses were rescaled to fit Omega_m = {params["OMEGA_M"]}')
         log.info(f'Total mass in the box: {np.sum(self.mass)*1e11:.6e} Msol')
         # Calculate mass statistics after rescaling
         self.mass_list = np.unique(self.mass)

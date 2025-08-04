@@ -326,5 +326,6 @@ def create_nres_mass_map(n_grid_samples, mass_list, M_box, Lbox):
 
     log.info('The generated resolution-mass map:')
     print(tabulate([*zip(nres_tab, mass_tab)],
-                   headers=['Resolution', 'Mass [1e11Msol]'], floatfmt='.0f'))
+                   headers=['Resolution', 'Mass [1e11 Msol]'],
+                   floatfmt=('.0f', '.6f')))
     return nres_tab, mass_tab
