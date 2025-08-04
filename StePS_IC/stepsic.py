@@ -40,15 +40,15 @@ logging.basicConfig(level=logging.INFO)
 
 def create_filename(params):
     '''
-    Construct a filename for the output IC based on the parameters.
+    Construct a filename for the output IC based on its parameters.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     params : dict
-        Dictionary containing the simulation parameters.
+        Dictionary containing the ``stepsic`` simulation parameters.
 
-    Returns:
-    --------
+    Returns
+    -------
     str
         The generated filename.
     '''
@@ -118,11 +118,6 @@ def main():
         raise NotImplementedError
         x = create_particles(
             npart=params['NPART'], Lbox=params['LBOX'], seed=params['SEED'])
-        with h5py.File(f"./output/glass{np.min(params['NMESH'])}.hdf5", 'w') as f:
-            h = f.create_group('Header')
-            h.attrs['BoxSize'] = np.max(params['LBOX'])
-            g = f.create_group('PartType1')
-            g.create_dataset('Coordinates', data=x, dtype='f8')
 
     ic = copy.deepcopy(ic_orig)  # The output IC will be stored here
     
