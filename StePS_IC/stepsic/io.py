@@ -15,8 +15,9 @@
 #*******************************************************************************#
 
 from __future__ import annotations
-from typing import Dict, Any
+from typing import List, Dict, Any
 
+import re
 import h5py
 import numpy as np
 from pathlib import Path
@@ -74,9 +75,11 @@ class CosmoIO:
         if not path.exists():
             raise FileNotFoundError(path)
 
-        loader = CosmoIO._find_loader(path)
+        ext = CosmoIO._get_extension(path)
+        loader = CosmoIO._find_loader(ext)
+        files = CosmoIO._collect_files(path)
         return loader(
-            path,
+            files,
             part_type=part_type,
             constant_res=constant_res,
             dtype=dtype
@@ -101,66 +104,176 @@ class CosmoIO:
         saver = CosmoIO._find_saver(fmt)
         saver(path, data=data, **kwargs)
 
-    _LOADER_MAP = {
-        ".dat": lambda p, **kw: CosmoIO._load_ascii(p, **kw),
-        ".txt": lambda p, **kw: CosmoIO._load_ascii(p, **kw),
-        ".hdf5": lambda p, **kw: CosmoIO._load_hdf5(p, **kw),
-        ".h5": lambda p, **kw: CosmoIO._load_hdf5(p, **kw)
-    }
-    _SAVER_MAP = {
-        "ascii": lambda p, **kw: CosmoIO._save_ascii(p, **kw),
-        "gadget": lambda p, **kw: CosmoIO._save_gadget(p, **kw),
-        "hdf5": lambda p, **kw: CosmoIO._save_hdf5(p, **kw),
-    }
+    @staticmethod
+    def _match_extension(path: Path):
+        '''
+        Detects the file extension of the given path.
+
+        Parameters
+        ----------
+        path : pathlib.Path
+            The path to the file whose extension is to be detected.
+
+        Returns
+        -------
+        match : re.Match or None
+            A match object if the path matches a valid pattern, or `None` if
+            it does not.
+        '''
+        parser_re = re.compile(
+            r"^(?P<stem>.*?)"
+            r"(?:"
+            # Pattern 1: .<index>.<ext> (e.g. ".0.hdf5")
+            r"\.(?P<index1>\d+)\.(?P<ext1>[a-zA-Z_][a-zA-Z0-9_]*)"
+            r"|"
+            # Pattern 2: .<ext>.<index> (e.g. ".hdf5.0")
+            r"\.(?P<ext2>[a-zA-Z_][a-zA-Z0-9_]*)\.(?P<index2>\d+)"
+            r"|"
+            # Pattern 3: .<ext> (e.g. ".hdf5")
+            r"\.(?P<ext3>[a-zA-Z_][a-zA-Z0-9_]*)"
+            r")$"
+        )
+        return parser_re.match(path.name)
+    
+    @staticmethod
+    def _get_extension(path: Path):
+        '''
+        Returns the file extension of the given path without the leading dot.
+
+        Parameters
+        ----------
+        path : pathlib.Path
+            The path to the file whose extension is to be returned.
+
+        Returns
+        -------
+        ext : str or None
+            The file extension without the leading dot, or `None` if no
+            valid extension is found.
+        '''
+        match = CosmoIO._match_extension(path)
+        if match:
+            parts = match.groupdict()
+            return re.escape(parts['ext1'] or parts['ext2'] or parts['ext3'])
+        return None
 
     @staticmethod
-    def _find_loader(path: Path):
+    def _collect_files(path: Path):
+        '''
+        Gathers all snapshot files belonging to the same group.
+
+        Parameters
+        ----------
+        path : pathlib.Path
+            The path to any single file in the snapshot set.
+
+        Returns
+        -------
+        files : List[pathlib.Path]
+            A sorted list of Path objects for all files in the snapshot.
+            Returns an empty list if the filepath does not match a valid
+            pattern.
+        '''
+        match = CosmoIO._match_extension(path)
+
+        if match:
+            # Regex looking for: \.digits\.ext OR \.ext\.digits OR \.ext
+            parts = match.groupdict()
+            stem = re.escape(parts['stem'])
+            ext = re.escape(parts['ext1'] or parts['ext2'] or parts['ext3'])
+            search_pattern = rf'^{stem}(\.\d+\.{ext}|\.{ext}\.\d+|\.{ext})$'
+        else:
+            # If no extension is provided, treat it as a gadget file
+            ext_pattern = re.compile(r"^(?P<stem>.*?)(?:\.(?P<index>\d+))?$")
+            match = ext_pattern.match(path.name)
+            if not match:
+                return [path.name]  # Standalone gadget snapshot
+            search_pattern = rf'^{re.escape(match.group("stem"))}(?:\.\d+)?$'
+
+        search_re = re.compile(search_pattern)
+
+        files = sorted([
+            f for f in path.parent.iterdir()
+            if f.is_file() and search_re.match(f.name)
+        ])
+        
+        return files
+
+
+    @staticmethod
+    def _find_loader(ext: str):
         '''Return the appropriate backend reader for ``path``.'''
-        ext = path.suffix.lower()
-        if ext in CosmoIO._LOADER_MAP:
-            return CosmoIO._LOADER_MAP[ext]
+        _LOADER_MAP = {
+            "dat": lambda f, **kw: CosmoIO._load_ascii(f, **kw),
+            "txt": lambda f, **kw: CosmoIO._load_ascii(f, **kw),
+            "hdf5": lambda f, **kw: CosmoIO._load_hdf5(f, **kw),
+            "h5": lambda f, **kw: CosmoIO._load_hdf5(f, **kw)
+        }
+
+        if ext in _LOADER_MAP:
+            return _LOADER_MAP[ext]
 
         # Anything else we treat as Gadget if glio is present
         if glio is None:
             raise UnsupportedFormatError(
-                f'`{path.name}` has an unsupported extension and glio is not installed.'
+                f'`{ext}` is an unsupported extension and glio is not installed.'
             )
-        return CosmoIO._load_gadget
-    
+        return lambda f, **kw: CosmoIO._load_gadget(f, **kw)
+
     @staticmethod
     def _find_saver(ext: str):
         '''Return the appropriate backend writer for the save method.'''
-        if ext in CosmoIO._SAVER_MAP:
-            return CosmoIO._SAVER_MAP[ext]
+        _SAVER_MAP = {
+            "ascii": lambda p, **kw: CosmoIO._save_ascii(p, **kw),
+            "gadget": lambda p, **kw: CosmoIO._save_gadget(p, **kw),
+            "hdf5": lambda p, **kw: CosmoIO._save_hdf5(p, **kw),
+        }
+
+        if ext in _SAVER_MAP:
+            return _SAVER_MAP[ext]
         raise UnsupportedFormatError('Only HDF5 files are supported.')
 
     @staticmethod
-    def _load_ascii(path: Path, **kwargs):
+    def _load_ascii(files: List[Path], **kwargs):
         '''Load a cosmological snapshot from an ASCII file.'''
-        logger.info(f"Reading ASCII file: {path}")
         dtype = kwargs.get('dtype', np.float32)
-        data = np.loadtxt(path)
-        particleIDs = np.arange(data.shape[0], dtype=np.uint64)
-        coordinates = np.array(data[:, 1:4], dtype=dtype)
-        velocities = np.array(data[:, 4:7], dtype=dtype)
-        masses = np.array(data[:, 7], dtype=dtype)
-        logger.info("...done.")
+        particleIDs, coordinates, velocities, masses = [], [], [], []
+        logger.info(f'Reading the input ASCII files ...')
+        for path in files:
+            logger.info(f'Opening ASCII file {path}...')
+            data = np.loadtxt(path)
+            particleIDs.append(np.array(data[:, 0], dtype=np.uint64))
+            coordinates.append(np.array(data[:, 1:4], dtype=dtype))
+            velocities.append(np.array(data[:, 4:7], dtype=dtype))
+            masses.append(np.array(data[:, 7], dtype=dtype))
+        particleIDs = np.concatenate(particleIDs, dtype=np.uint64)
+        coordinates = np.concatenate(coordinates, dtype=dtype)
+        velocities = np.concatenate(velocities, dtype=dtype)
+        masses = np.concatenate(masses, dtype=dtype)
         return particleIDs, coordinates, velocities, masses
 
     @staticmethod
-    def _load_hdf5(path: Path, **kwargs):
+    def _load_gadget(path: Path, **kwargs):
+        '''Load a cosmological snapshot from a Gadget binary.'''
+        part_type = kwargs.get('part_type', 1)
+        logger.info(f'Reading the input Gadget files ...')
+        logger.info(f'Opening Gadget file {path}...')
+        s = glio.GadgetSnapshot(path)
+        particleIDs = s.ID[part_type]
+        coordinates = s.pos[part_type]
+        velocities = s.vel[part_type]
+        masses = s.mass[part_type]
+        return particleIDs, coordinates, velocities, masses
+
+    @staticmethod
+    def _load_hdf5(files: List[Path], **kwargs):
         '''Load a cosmological snapshot from an HDF5 file.'''
-        logger.info(f"Reading the input HDF5 files ...")
+        logger.info(f'Reading the input HDF5 files ...')
         part_type = kwargs.get('part_type', 1)
         dtype = kwargs.get('dtype', np.float32)
-    
-        stem = path.stem.split('.')[0]
-        files = sorted(path.parent.glob(f'{stem}*.hdf5'))
-        if not files:
-            raise FileNotFoundError(path)
         particleIDs, coordinates, velocities, masses = [], [], [], []
         for f in files:
-            logger.info(f'Opening {f}...')
+            logger.info(f'Opening HDF file {f}...')
             with h5py.File(f, 'r') as hdf:
                 particleIDs.append(hdf[f'/PartType{part_type}/ParticleIDs'][:])
                 coordinates.append(hdf[f'/PartType{part_type}/Coordinates'][:])
@@ -176,18 +289,6 @@ class CosmoIO:
         coordinates = np.concatenate(coordinates, dtype=dtype)
         velocities = np.concatenate(velocities, dtype=dtype)
         masses = np.concatenate(masses, dtype=dtype)
-        return particleIDs, coordinates, velocities, masses
-
-    @staticmethod
-    def _load_gadget(path: Path, **kwargs):
-        '''Load a cosmological snapshot from a Gadget binary.'''
-        logger.info(f"Reading Gadget file: {path}")
-        part_type = kwargs.get('part_type', 1)
-        s = glio.GadgetSnapshot(path)
-        particleIDs = s.ID[part_type]
-        coordinates = s.pos[part_type]
-        velocities = s.vel[part_type]
-        masses = s.mass[part_type]
         return particleIDs, coordinates, velocities, masses
     
     @staticmethod
