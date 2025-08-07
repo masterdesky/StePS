@@ -45,13 +45,7 @@ class CosmoIO:
     structured numpy array.
     '''
     @staticmethod
-    def load_snapshot(
-        path: Path,
-        *,
-        part_type: int = 1,
-        constant_res: bool = False,
-        dtype: np.dtype = np.float32
-    ):
+    def load_snapshot(path: Path, *args, **kwargs):
         '''
         Loads a Gadget-format snapshot of a cosmological simulation from
         either an ASCII, HDF5, NPY or Gadget-format input file.
@@ -72,18 +66,15 @@ class CosmoIO:
             The data type to use for the snapshot. If not specified, float32 is used.
         '''
         path = path.expanduser().resolve()
-        if not path.exists():
-            raise FileNotFoundError(path)
+        if not path.parent.exists():
+            raise FileNotFoundError(path.parent)
 
         ext = CosmoIO._get_extension(path)
         loader = CosmoIO._find_loader(ext)
         files = CosmoIO._collect_files(path)
-        return loader(
-            files,
-            part_type=part_type,
-            constant_res=constant_res,
-            dtype=dtype
-        )
+        if not files:
+            raise FileNotFoundError(f'No files found matching {path.name}.')
+        return loader(files, *args, **kwargs)
     
     @staticmethod
     def save_snapshot(path: Path, data: "CosmoData", fmt: str, **kwargs):
@@ -206,8 +197,8 @@ class CosmoIO:
         _LOADER_MAP = {
             "dat": lambda f, **kw: CosmoIO._load_ascii(f, **kw),
             "txt": lambda f, **kw: CosmoIO._load_ascii(f, **kw),
-            "hdf5": lambda f, **kw: CosmoIO._load_hdf5(f, **kw),
-            "h5": lambda f, **kw: CosmoIO._load_hdf5(f, **kw)
+            "hdf5": lambda f, *args, **kw: CosmoIO._load_hdf5(f, *args, **kw),
+            "h5": lambda f, *args, **kw: CosmoIO._load_hdf5(f, *args, **kw)
         }
 
         if ext in _LOADER_MAP:
@@ -266,30 +257,29 @@ class CosmoIO:
         return particleIDs, coordinates, velocities, masses
 
     @staticmethod
-    def _load_hdf5(files: List[Path], **kwargs):
+    def _load_hdf5(files: List[Path], *args, **kwargs):
         '''Load a cosmological snapshot from an HDF5 file.'''
         logger.info(f'Reading the input HDF5 files ...')
         part_type = kwargs.get('part_type', 1)
-        dtype = kwargs.get('dtype', np.float32)
-        particleIDs, coordinates, velocities, masses = [], [], [], []
+        if args:
+            arguments = {ai: [] for ai in args}
+            dtypes = {ai: None for ai in args}
         for f in files:
             logger.info(f'Opening HDF file {f}...')
             with h5py.File(f, 'r') as hdf:
-                particleIDs.append(hdf[f'/PartType{part_type}/ParticleIDs'][:])
-                coordinates.append(hdf[f'/PartType{part_type}/Coordinates'][:])
-                velocities.append(hdf[f'/PartType{part_type}/Velocities'][:])
-                m = hdf[f'/PartType{part_type}/Masses'][:]
-                mass_table = hdf['/Header'].attrs['MassTable'][part_type]
-                if np.all(m == 0):
-                    m = np.full_like(particleIDs, mass_table, dtype=dtype)
-                if kwargs.get('constant_res', True):
-                    m *= mass_table
-                masses.append(m)
-        particleIDs = np.concatenate(particleIDs, dtype=np.uint64)
-        coordinates = np.concatenate(coordinates, dtype=dtype)
-        velocities = np.concatenate(velocities, dtype=dtype)
-        masses = np.concatenate(masses, dtype=dtype)
-        return particleIDs, coordinates, velocities, masses
+                for ai in args:
+                    arguments[ai].append(hdf[f'/PartType{part_type}/{ai}'][:])
+                    dtypes[ai] = hdf[f'/PartType{part_type}/{ai}'].dtype
+                if 'Masses' in args:
+                    N_part = hdf['/Header'].attrs['NumPart_ThisFile'][part_type]
+                    mass_part_type = hdf['/Header'].attrs['MassTable'][part_type]
+                    if np.all(arguments['Masses'] == 0):
+                        arguments['Masses'] = np.ones(N_part) * mass_part_type
+                    if kwargs.get('constant_res', False):
+                        arguments['Masses'] *= mass_part_type
+        for ai in args:
+            arguments[ai] = np.concatenate(arguments[ai], dtype=dtypes[ai])
+        return arguments.values()
     
     @staticmethod
     def _save_ascii(path: Path, data: "CosmoData", **kwargs):

@@ -17,7 +17,8 @@ NRBINS = 224           # Number of radial bins in the stereographic projection.
 
 # IO parameters
 INPUT_GLASS = "./examples/input_glass.hdf5"  # Path to the input glass file inserted into the middle of the simulation. If not provided, a glass will be generated. See "IC generation parameters" below for that.
-# WHITE_NOISE_FILE = "example/white_noise.hdf5"  # Path to the input white noise file. If not provided, a white noise will be generated. This file should contain a 3D array of random numbers with the same shape as the mesh size defined by `NMESH`.
+# TODO: INPUT_WHITE_NOISE = "example/white_noise.hdf5"  # Path to the input white noise file. If not provided, a `white noise` will be generated. This file should contain a 3D array of random numbers with the same shape as the mesh size defined by `NMESH`.
+# TODO: INPUT_DELTA_K = "example/delta_k.hdf5"  # Path to the input delta_k file. If not provided, a `delta_k` will be generated.
 
 IC_DIR = "output"      # Directory where the IC files will be saved
 IC_PREFIX = "stepsic"  # Prefix for the output files
@@ -34,6 +35,11 @@ COMOVING = false       # If `true`, the IC will be generated in comoving coordin
 COUNTER = false        # If `true`, the IC will be generated with a phase flip in Fourier space.
 PHASE_SHIFT = 0.0      # Phase shift to apply to the IC. This is useful for generating IC with a specific phase shift in the Fourier space, primarily to reduce the cosmic variance by pairing normal and antipodal simulations.
 HINDEPENDENT = false   # If `true`, the IC will be generated in units of [U/h] instead of [U].
+
+# TODO: Primordial non-Gaussianity
+
+# Rotating IC parameters
+ROTATE = 0.0           # Add an angular velocity to the IC in degrees / Gyr.
 
 # Cosmology parameters
 # By default, we use parameters from table 2.20 of the Planck 2018 results
