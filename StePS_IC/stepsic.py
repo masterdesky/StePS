@@ -54,7 +54,8 @@ def create_filename(params):
     '''
     fname = f"{params['IC_PREFIX']}_"
     fname += "Lx{}_Ly{}_Lz{}_".format(*map(int, params['LBOX']))
-    fname += f"R3D{params['R_3D']:.0f}_D4D{params['D_4D']:.0f}_z{params['REDSHIFT']:.0f}"
+    fname += f"R3D{params['R_3D']:.0f}_D4D{params['D_4D']:.0f}_"
+    fname += f"z{params['REDSHIFT']:.0f}"
     return fname
 
 def main():
@@ -73,12 +74,12 @@ def main():
     g1 = 1
     D1 = g1 * cosmo_colossus.Dzplus0(params['REDSHIFT'])
     g2 = - 3.0/7.0 * params['OMEGA_M']**(-1/143)
-    D2 = g2 * D1**2  # Bernardeau et al. 2001, eq. 97  # Unused!
+    D2 = g2 * D1**2  # Bernardeau et al. 2002, eq. 97  # Unused!
     log.info(f"D1(z={params['REDSHIFT']}) = {D1:.6f}")
     log.info(f"D2(z={params['REDSHIFT']}) = {D2:.6f}")
 
-    # Bernardeau et al. 2001, eq. 99
-    # velocity prefactors (a*H*f) should be in km/s/(Mpc/h)
+    # Bernardeau et al. 2002, eq. 99
+    # velocity prefactors (a*H*f) should be in km/s/Mpc
     Hz = hubble_a(params['SCALE'], params['H0'], params['OMEGA_M'], params['OMEGA_L'])
     log.info(f'Initial Hubble parameter: {Hz} km/s/Mpc')
     aHf1 = params['SCALE'] * Hz * F_omega(params['SCALE'], params['OMEGA_M'], params['OMEGA_L'])
@@ -105,13 +106,11 @@ def main():
 
     # Construct the initial conditions
     if params['TYPE'] == 'glass':
-        ic_orig = CosmoData.load_snapshot(
-            Path(params['INPUT_GLASS']), dtype=params['DTYPE'])
+        ic_orig = CosmoData.load_snapshot(Path(params['INPUT_GLASS']))
         ic_orig.to_internal_units(params)
         ic_orig.rescale_snapshot_mass(params)
-        ic = copy.deepcopy(ic_orig)  # The output IC will be stored here
         ic_orig.center_snapshot(params)
-        ic_orig.periodic_shift(params)
+        ic = copy.deepcopy(ic_orig)  # The output IC will be stored here
     if params['TYPE'] == 'grid':
         raise NotImplementedError
         x, _ = create_grid(nvox, dk)
@@ -138,7 +137,7 @@ def main():
 
         for si, (res, mass) in enumerate(zip(nres_tab, mass_tab)):
             log.info(f"Generating sample {si+1}/{params['NGRIDSAMPLES']}...")
-            log.info(f"Resolution: {res:.0f} voxels, Mass: {mass:.6f} 1e11 Msol")
+            log.info(f'Resolution: {res:.0f} voxels, Mass: {mass:.6f} 1e11 Msol')
             nvox, dk = cubic_voxels(res, params['LBOX'])
             # White noise field for complete reproducibility
             field = white_noise(nvox=nvox, seed=params['SEED'])
@@ -149,14 +148,14 @@ def main():
             if params['LPTORDER'] == 1:
                 # Use 1st order Lagrangian PT (Zel'dovich approximation)
                 xpert, vpert = lpt1(
-                    ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, aHf1=aHf1,
-                    h=params['H'], counter=params['COUNTER'])
+                    ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g1=g1, aHf1=aHf1,
+                    counter=params['COUNTER'])
                 log_lpt(x=ic_orig.pos, xpert=xpert, vpert=vpert, title='1LPT')
             elif params['LPTORDER'] == 2:
                 # Use 2nd order Lagrangian PT
                 xpert, vpert = lpt2(
-                    ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g2=g2,
-                    aHf1=aHf1, aHf2=aHf2, h=params['H'], counter=params['COUNTER'])
+                    ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g1=g1, g2=g2,
+                    aHf1=aHf1, aHf2=aHf2, counter=params['COUNTER'])
                 log_lpt(x=ic_orig.pos, xpert=xpert, vpert=vpert, title='2LPT')
 
             # Calculating the displacement field for every grid
@@ -183,26 +182,26 @@ def main():
         if params['LPTORDER'] == 1:
             # Use 1st order Lagrangian PT (Zel'dovich approximation)
             xpert, vpert = lpt1(
-                ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, aHf1=aHf1,
-                h=params['H'], counter=params['COUNTER'])
+                ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g1=g1, aHf1=aHf1,
+                counter=params['COUNTER'])
             log_lpt(x=ic_orig.pos, xpert=xpert, vpert=vpert, title='1LPT')
         elif params['LPTORDER'] == 2:
             # Use 2nd order Lagrangian PT
             xpert, vpert = lpt2(
-                ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g2=g2,
-                aHf1=aHf1, aHf2=aHf2, h=params['H'], counter=params['COUNTER'])
+                ic_orig.pos, delta_k=delta_k, nvox=nvox, dk=dk, g1=g1, g2=g2,
+                aHf1=aHf1, aHf2=aHf2, counter=params['COUNTER'])
             log_lpt(x=ic_orig.pos, xpert=xpert, vpert=vpert, title='2LPT')
         ic.pos = xpert
         ic.vel = vpert
 
     # Prepare the IC for final output
-    #ic.periodic_shift(params)
+    ic.periodic_shift(params)
     ic.from_internal_units(params)
 
-    if params['COMOVING']:
-        log.info('Adding the Hubble flow...')
+    if not params['COMOVING']:
+        log.info('Converting the IC to proper coordinates...')
         ic.pos *= params['SCALE']
-        ic.vel *= np.sqrt(params['SCALE'])
+        ic.vel *= np.sqrt(params['SCALE'])  # StePS/Gadget convention
         ic.vel += ic.pos * Hz
 
     if params['HINDEPENDENT']:
@@ -229,6 +228,8 @@ if __name__ == "__main__":
 
 
 #*******************************************************************************#
+
+# Redshift cones code from old stepsic
 
 # if GEOMETRY == 'spherical':
 #     print("Calculating redshifts for the spherical shells...")

@@ -94,7 +94,7 @@ def F_omega(a, omega_m, omega_l):
         The linear growth rate :math:`F_\omega(a)`.
     '''
     omega_a = omega_m / (omega_m + a * (1 - omega_m - omega_l) + a**3 * omega_l)
-    return np.power(omega_a, 5.0/9.0)  # Bernardeau et al. 2001, eq. 101a
+    return np.power(omega_a, 5.0/9.0)  # Bernardeau et al. 2002, eq. 101a
 
 
 def F2_omega(a, omega_m, omega_l):
@@ -132,7 +132,7 @@ def F2_omega(a, omega_m, omega_l):
         The second-order growth rate :math:`F2_\omega(a)`.
     '''
     omega_a = omega_m / (omega_m + a * (1 - omega_m - omega_l) + a**3 * omega_l)
-    return 2 * np.power(omega_a, 6.0/11.0)  # Bernardeau et al. 2001, eq. 101b
+    return 2 * np.power(omega_a, 6.0/11.0)  # Bernardeau et al. 2002, eq. 101b
 
 class ColossusCosmology:
     def __init__(self, *,

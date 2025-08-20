@@ -29,13 +29,13 @@ def log_lpt(x, xpert, vpert, *, title=None) -> None:
     vmax, vavg = np.max(vabs, axis=0), np.mean(vabs, axis=0)
     for i, xi in enumerate(('x', 'y', 'z')):
         log.info(f"{title} '{xi}' displacements: "
-                 f"d_max = {xmax[i]*1e3:.3f} kpc/h; d_avg = {xavg[i]*1e3:.3f} kpc/h")
+                 f"d_max = {xmax[i]*1e3:.3f} kpc; d_avg = {xavg[i]*1e3:.3f} kpc")
         log.info(f"{title} 'v{xi}' velocities:   "
                  f"v_max = {vmax[i]:.3f} km/s; v_avg = {vavg[i]:.3f} km/s")
     return
 
 
-def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
+def lpt1(x, delta_k, nvox, dk, g1, aHf1, counter=False):
     r'''
     Apply first-order Lagrangian Perturbation Theory (LPT), i.e., the
     Zel'dovich approximation, to generate perturbed particle positions
@@ -49,11 +49,11 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
     .. math::
         \mathbf{x}(\mathbf{q}, t) = \mathbf{q} + \mathbf{\Psi}(\mathbf{q}),
 
-    where :math:`D_1(t)` is the linear growth factor and :math:`\mathbf{\Psi}(\mathbf{q})`
-    is the displacement field computed from the initial density
-    perturbations. The displacement field is related to the gravitational
-    potential, and in Fourier space, it is calculated from the
-    overdensity field :math:`\delta(\mathbf{k})`:
+    where :math:`D_1(t)` is the linear growing model and
+    :math:`\mathbf{\Psi}(\mathbf{q})` is the displacement field computed
+    from the initial density perturbations. The displacement field is
+    related to the gravitational potential, and in Fourier space, it is
+    calculated from the overdensity field :math:`\delta(\mathbf{k})`:
 
     .. math::
         \mathbf{\Psi}(\mathbf{k}) =
@@ -65,8 +65,7 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
     Parameters
     ----------
     x : ndarray of shape (N, 3)
-        Initial unperturbed particle positions (Lagrangian coordinates),
-        in comoving Mpc/h.
+        Initial unperturbed particle positions in physical [Mpc].
     delta_k : ndarray
         A 3D complex-valued array of shape (Nx, Ny, Nz//2+1) representing
         the Fourier modes of the overdensity field.
@@ -76,14 +75,13 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
         The uniform step size in each dimension, calculated as the length
         of the shortest dimension divided by the number of voxels in
         that dimension.
+    g1 : float
+        The first-order Lagrangian growth coefficient, typically
+        :math:`g_1 = 1`.
     aHf1 : float
         A prefactor for the velocity calculation, typically related to the
         time derivative of the growth factor (e.g. :math:`\dot{D}_1` or
-        :math:`H(a)f(a)` where f is the growth rate). The code uses this
-        in a non-standard velocity formula.
-    h : float
-        The dimensionless Hubble parameter, :math:`h = H_0 / 100`, where
-        :math:`H_0` is the Hubble constant.
+        :math:`H(a)f(a)` where :math:`f` is the growth rate).
     counter : bool
         If True, applies a global sign flip to the Fourier-space density
         field (equivalent to a :math:`\pi` phase shift). This is useful
@@ -93,14 +91,13 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
     Returns
     -------
     xpert : ndarray of shape (N, 3)
-        Perturbed particle positions (Eulerian coordinates) in comoving
-        Mpc/h. Positions are wrapped to lie within the periodic box.
+        Perturbed particle positions in physical [Mpc].
     vpert : ndarray of shape (N, 3)
-        Particle peculiar velocities in km/s. The velocity is computed
+        Particle peculiar velocities in [km/s]. The velocity is computed
         according to the specific formula implemented in this function:
 
         .. math::
-            \mathbf{v} = \frac{\dot{D}(a)}{D(1)} \cdot \mathbf{\Psi} / h\,,
+            \mathbf{v} = \frac{\dot{D}(a)}{D(1)} \cdot \mathbf{\Psi}\,,
         
         where :math:`\dot{D}(a)` is approximated by the velocity prefactor
 
@@ -140,9 +137,8 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
               \mathbf{x}_{\text{pert}} = \mathbf{q} + \mathbf{\Psi}(\mathbf{q})
 
         - Particle velocities are computed using the interpolated
-          displacement field :math:`\mathbf{\Psi}`, the growth factor
-          ``D1``, and the velocity prefactor ``aHf1``. The final result
-          is multiplied by ``h`` to obtain units of km/s.
+          displacement field :math:`\mathbf{\Psi}`, the growing mode
+          ``D1``, and the velocity prefactor ``aHf1``.
     '''
     kvec, kmod = fourier_grid(nvox, dk, hermitian=True)
     delta_k = delta_k * np.exp(1j * np.pi) if counter else delta_k
@@ -154,12 +150,12 @@ def lpt1(x, delta_k, nvox, dk, aHf1, h, counter=False):
     disp_field_interp = np.empty_like(x, dtype=np.float32)
     for i in range(3):
         disp_field_interp[:, i] = interpolate_field(x, disp_field[i], dk)
-    xpert = x + disp_field_interp  # Bernardeau et al. 2001, eq. 98
-    vpert = disp_field_interp * aHf1  # Bernardeau et al. 2001, eq. 99
-    return xpert, vpert / h # Mpc/h, km/s
+    xpert = x + g1 * disp_field_interp  # Bernardeau et al. 2002, eq. 98
+    vpert = g1 * aHf1 * disp_field_interp  # Bernardeau et al. 2002, eq. 99
+    return xpert, vpert  # Mpc, km/s
 
 
-def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
+def lpt2(x, delta_k, nvox, dk, g1, g2, aHf1, aHf2, counter=False):
     r'''
     Apply second-order Lagrangian Perturbation Theory (2LPT) to generate
     perturbed particle positions and velocities.
@@ -175,8 +171,8 @@ def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
 
     where :math:`\mathbf{\Psi}^{(1)}` and :math:`\mathbf{\Psi}^{(2)}`
     are the first- and second-order displacement fields, and :math:`D_1`
-    and :math:`D_2` are the corresponding linear and second-order growth
-    factors.
+    and :math:`D_2` are the corresponding linear and second-order growing
+    modes.
 
     The **first-order field** is calculated from the overdensity :math:`\delta`
     as in 1LPT:
@@ -234,8 +230,7 @@ def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
     Parameters
     ----------
     x : ndarray of shape (N, 3)
-        Initial unperturbed particle positions (Lagrangian coordinates),
-        in comoving Mpc/h.
+        Initial unperturbed particle positions in physical [Mpc].
     delta_k : ndarray
         A 3D complex-valued array of shape (Nx, Ny, Nz//2+1) representing
         the Fourier modes of the overdensity field.
@@ -245,18 +240,18 @@ def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
         The uniform step size in each dimension, calculated as the length
         of the shortest dimension divided by the number of voxels in
         that dimension.
-    aHf1 : float
-        A prefactor for the velocity calculation, typically related to the
-        time derivative of the growth factor (e.g. :math:`\dot{D}_1` or
-        :math:`H(a)f(a)` where f is the growth rate). The code uses this
-        in a non-standard velocity formula.
+    g1 : float
+        The first-order Lagrangian growth coefficient, typically
+        :math:`g_1 = 1`.
     g2 : float
         The second-order Lagrangian growth coefficient, typically
         :math:`g_2 = -\frac{3}{7} \Omega_M^{-1/143}`.
+    aHf1 : float
+        A prefactor for the velocity calculation, typically related to the
+        time derivative of the growth factor (e.g. :math:`\dot{D}_1` or
+        :math:`H(a)f(a)` where :math:`f` is the growth rate).
     aHf2 : float
         A prefactor for the second-order velocity term.
-    h : float
-        The dimensionless Hubble parameter, :math:`h = H_0 / 100`.
     counter : bool
         If True, applies a global sign flip to the Fourier-space density
         field (equivalent to a :math:`\pi` phase shift). This is useful
@@ -266,13 +261,12 @@ def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
     Returns
     -------
     xpert : ndarray of shape (N, 3)
-        Perturbed particle positions (Eulerian coordinates) in comoving
-        Mpc/h, wrapped within the periodic box.
-    v : ndarray of shape (N, 3)
-        Particle peculiar velocities in km/s, computed as:
+        Perturbed particle positions in physical [Mpc].
+    vpert : ndarray of shape (N, 3)
+        Particle peculiar velocities in [km/s], computed as:
 
         .. math::
-            \mathbf{v} = \frac{-D_1 \cdot dD_1 \cdot \mathbf{\Psi}^{(1)} + D_2 \cdot dD_2 \cdot \mathbf{\Psi}^{(2)}}{h}.
+            \mathbf{v} = -D_1 \cdot dD_1 \cdot \mathbf{\Psi}^{(1)} + D_2 \cdot dD_2 \cdot \mathbf{\Psi}^{(2)}.
 
     Notes
     -----
@@ -356,6 +350,6 @@ def lpt2(x, delta_k, nvox, dk, g2, aHf1, aHf2, h, counter=False):
         disp_field1_interp[:, i] = interpolate_field(x, disp_field1[i], dk)
         disp_field2_interp[:, i] = interpolate_field(x, disp_field2[i], dk)
     
-    xpert = x + disp_field1_interp + g2 * disp_field2_interp
-    vpert = disp_field1_interp * aHf1 + g2 * disp_field2_interp * aHf2
-    return xpert, vpert / h  # Mpc/h, km/s
+    xpert = x + g1 * disp_field1_interp + g2 * disp_field2_interp
+    vpert = g1 * aHf1 * disp_field1_interp + g2 * aHf2 * disp_field2_interp
+    return xpert, vpert  # Mpc, km/s
