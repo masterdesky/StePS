@@ -31,7 +31,7 @@ except ImportError as _err:
     # _GLIO_IMPORT_ERROR = _err
 
 import logging
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class UnsupportedFormatError(RuntimeError):
@@ -180,16 +180,13 @@ class CosmoIO:
             if not match:
                 return [path.name]  # Standalone gadget snapshot
             search_pattern = rf'^{re.escape(match.group("stem"))}(?:\.\d+)?$'
-
         search_re = re.compile(search_pattern)
 
-        files = sorted([
-            f for f in path.parent.iterdir()
-            if f.is_file() and search_re.match(f.name)
-        ])
-        
-        return files
-
+        files = []
+        for f in path.parent.iterdir():
+            if f.is_file() and search_re.match(f.name):
+                files.append(f)
+        return sorted(files)
 
     @staticmethod
     def _find_loader(ext: str):
@@ -229,9 +226,9 @@ class CosmoIO:
         '''Load a cosmological snapshot from an ASCII file.'''
         dtype = kwargs.get('dtype', np.float32)
         particleIDs, coordinates, velocities, masses = [], [], [], []
-        logger.info(f'Reading the input ASCII files ...')
+        log.info(f'Reading the input ASCII files ...')
         for path in files:
-            logger.info(f'Opening ASCII file {path}...')
+            log.info(f'Opening ASCII file {path}...')
             data = np.loadtxt(path)
             particleIDs.append(np.array(data[:, 0], dtype=np.uint64))
             coordinates.append(np.array(data[:, 1:4], dtype=dtype))
@@ -247,8 +244,8 @@ class CosmoIO:
     def _load_gadget(path: Path, **kwargs):
         '''Load a cosmological snapshot from a Gadget binary.'''
         part_type = kwargs.get('part_type', 1)
-        logger.info(f'Reading the input Gadget files ...')
-        logger.info(f'Opening Gadget file {path}...')
+        log.info(f'Reading the input Gadget files ...')
+        log.info(f'Opening Gadget file {path}...')
         s = glio.GadgetSnapshot(path)
         particleIDs = s.ID[part_type]
         coordinates = s.pos[part_type]
@@ -259,14 +256,15 @@ class CosmoIO:
     @staticmethod
     def _load_hdf5(files: List[Path], *args, **kwargs):
         '''Load a cosmological snapshot from an HDF5 file.'''
-        logger.info(f'Reading the input HDF5 files ...')
+        log.info(f'Reading the input HDF5 files ...')
         part_type = kwargs.get('part_type', 1)
-        if args:
-            arguments = {ai: [] for ai in args}
-            dtypes = {ai: None for ai in args}
-        for f in files:
-            logger.info(f'Opening HDF file {f}...')
-            with h5py.File(f, 'r') as hdf:
+        if not args:
+            args = ['ParticleIDs', 'Coordinates', 'Velocities', 'Masses']
+        arguments = {ai: [] for ai in args}
+        dtypes = {ai: None for ai in args}
+        for path in files:
+            log.info(f'Opening HDF file {path}...')
+            with h5py.File(path, 'r') as hdf:
                 for ai in args:
                     arguments[ai].append(hdf[f'/PartType{part_type}/{ai}'][:])
                     dtypes[ai] = hdf[f'/PartType{part_type}/{ai}'].dtype
