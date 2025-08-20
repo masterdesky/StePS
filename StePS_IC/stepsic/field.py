@@ -27,13 +27,13 @@ log = logging.getLogger(__name__)
 def wrap(x, Lbox):
     '''
     Wraps the coordinates in ``x`` to be within the periodic box defined
-    by ``Lbox``.
+    by ``Lbox`` to the inverval :math:`(0, L]`
 
     Parameters
     ----------
-    x : ndarray of shape (N, 3)
+    x : ndarray of shape (N, M)
         The coordinates to wrap.
-    Lbox : ndarray of shape (3,)
+    Lbox : ndarray of shape (M,)
         The size of the periodic box in each dimension.
 
     Returns
@@ -41,7 +41,7 @@ def wrap(x, Lbox):
     wrapped : ndarray
         The wrapped coordinates.
     '''
-    return np.mod(x+Lbox/2, Lbox) - Lbox/2
+    return np.mod(x+Lbox/2, Lbox)
 
 
 def interpolate_field(x, field, dk, method='linear'):
@@ -52,7 +52,7 @@ def interpolate_field(x, field, dk, method='linear'):
     Parameters
     ----------
     x : ndarray of shape (N, 3)
-        Particle positions in the simulation box.
+        Particle positions in physical [Mpc].
     field : ndarray
         The grid-based field (e.g. a displacement field) defined on a
         regular grid.
@@ -118,8 +118,8 @@ def create_particles(npart: int, Lbox, seed=None):
     npart : int
         The number of particles to create.
     Lbox : float or list of float
-        Length of the box in each dimension [Lx, Ly, Lz] or a single
-        float value for a cubic box.
+        Box dimensions in [Mpc]. Can be a scalar for a cubical box or
+        an array in the form of `(Lx, Ly, Lz)` for a rectangular cuboid.
     seed : int, optional
         Random seed for reproducibility.
 
@@ -144,9 +144,9 @@ def cubic_voxels(nmesh, Lbox):
     ----------
     nmesh : int
         Number of voxels in the shortest dimension.
-    Lbox : float or list of float
-        Length of the box in each dimension [Lx, Ly, Lz] or a single
-        float value for a cubic box.
+    Lbox : float or tuple of float
+        Box dimensions in [Mpc]. Can be a scalar for a cubical box or
+        an array in the form of `(Lx, Ly, Lz)` for a rectangular cuboid.
 
     Returns
     -------
@@ -183,21 +183,21 @@ def fourier_grid(nvox, dk, hermitian=False):
     Parameters
     ----------
     nvox : tuple of int
-        The number of voxels in each dimension of the grid (Nx, Ny, Nz).
+        The number of voxels in each dimension of the grid `(Nx, Ny, Nz)`.
     dk : float
         The uniform step size in each dimension, calculated as the length
         of the shortest dimension divided by the number of voxels in
         that dimension.
     hermitian : bool
-        If True, assume the field has Hermitian symmetry (i.e., it is
+        If `True`, assume the field has Hermitian symmetry (i.e. it is
         real-valued) and use the reduced FFT along the last dimension.
 
     Returns
     -------
     kvec : ndarray
         A three-dimensional array of wavevector components with shape:
-          - :math:`(3, {N_x}, {N_y}, {N_z}//2+1)` if ``hermitian`` is True.
-          - :math:`(3, {N_x}, {N_y}, {N_z})` if ``hermitian`` is False.
+          - :math:`(3, {N_x}, {N_y}, {N_z}//2+1)` if ``hermitian`` is `True`.
+          - :math:`(3, {N_x}, {N_y}, {N_z})` if ``hermitian`` is `False`.
         Each sub-array corresponds to the ``x``, ``y``, or ``z`` component
         of the wavevector.
     
@@ -227,13 +227,13 @@ def white_noise(nvox, seed=None):
     Parameters
     ----------
     nvox : tuple of int
-        Number of voxels in each dimension (Nx, Ny, Nz).
+        Number of voxels in each dimension `(Nx, Ny, Nz)`.
     dk : float
         The uniform step size in each dimension, calculated as the length
         of the shortest dimension divided by the number of voxels in
         that dimension.
     seed : int or None, optional
-        Random seed for reproducibility. If None, uses the default RNG.
+        Random seed for reproducibility. If `None`, uses the default RNG.
 
     Returns
     -------
@@ -254,11 +254,11 @@ def generate_delta_k(kh, pk, nvox, dk, *, field=None, seed=None):
     Parameters
     ----------
     kh : ndarray
-        1D array of wavenumbers (k), in h/Mpc.
+        1D array of wavenumbers (k), in [Mpc].
     pk : ndarray
         1D array of the matter power spectrum P(k) at the initial redshift.
     nvox : tuple of int
-        The number of voxels in each dimension of the grid (Nx, Ny, Nz).
+        The number of voxels in each dimension of the grid `(Nx, Ny, Nz)`.
     dk : float
         The uniform step size in each dimension, calculated as the length
         of the shortest dimension divided by the number of voxels in
@@ -273,7 +273,7 @@ def generate_delta_k(kh, pk, nvox, dk, *, field=None, seed=None):
     Returns
     -------
     delta_k : ndarray
-        A 3D complex-valued array of shape (Nx, Ny, Nz//2+1) representing
+        A 3D complex-valued array of shape `(Nx, Ny, Nz//2+1)` representing
         the Fourier modes of the overdensity field.
     '''
     _, kmod = fourier_grid(nvox, dk, hermitian=True)
@@ -297,8 +297,8 @@ def create_nres_mass_map(n_grid_samples, mass_list, M_box, Lbox):
     Creates a lookup table for the number of voxels per mass bin
     for a variable resolution grid in a regular StePS simulation.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     n_grid_samples : int
         Number of grids with different resolutions.
     mass_list : ndarray
@@ -306,11 +306,11 @@ def create_nres_mass_map(n_grid_samples, mass_list, M_box, Lbox):
     M_box : float
         Total mass in the simulation box (in 1e11 Msol).
     Lbox : ndarray
-        Box dimensions in [Mpc]. Can be a single scalar for a cubical box or
-        an array in the form of `[Lx, Ly, Lz]` for a rectangular cuboid.
+        Box dimensions in [Mpc]. Can be a scalar for a cubical box or
+        an array in the form of `(Lx, Ly, Lz)` for a rectangular cuboid.
 
-    Returns:
-    --------
+    Returns
+    -------
     nres_tab : ndarray of shape (n_grid_samples,)
         Array containing the number of resolution elements for each grid.
     mass_tab : ndarray of shape (n_grid_samples,)

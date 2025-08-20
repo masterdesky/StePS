@@ -130,8 +130,11 @@ class CosmoData:
 
     def center_snapshot(self, params):
         '''
-        Shift the data to a Center-of-Interest (COI).
-        
+        Shift data to a Center-of-Interest (COI). First, normalize
+        particles to the interval :math:`[-L/2, L/2]`, if they are in
+        :math:`[0, L]`. Otherwise, assume they are already in this
+        interval.
+
         Parameters
         ----------
         params : dict
@@ -139,15 +142,16 @@ class CosmoData:
         '''
         log.info('Centering the particles around the Center-of-Interest...')
         # move the particles to the center of the box
-        mask = self.pos.max(axis=0) <= np.multiply(params['LBOX'], 0.5)
-        self.pos = np.where(mask, self.pos, self.pos - np.multiply(params['LBOX'], 1.0)/2)
+        Lbox_half = np.multiply(params['LBOX'], 0.5)
+        mask = self.pos.max(axis=0) > Lbox_half  # `>` filters grid ICs too
+        self.pos = np.where(mask, self.pos - Lbox_half, self.pos)
         # center the particles around a Center-of-Interest
         self.pos -= params['COI']
 
     def periodic_shift(self, params, periodic=None):
         '''
         Periodically shift the input glass to the desired box size and
-        center it in the box.
+        center it in the box. 
         
         Parameters
         ----------
@@ -160,4 +164,5 @@ class CosmoData:
         log.info('Periodically shifting the input glass...')
         if periodic is None:
             periodic = params['PERIODIC']
-        self.pos = np.where(periodic, wrap(self.pos, params['LBOX']), self.pos)
+        if np.any(params['PERIODIC']):
+            self.pos[:, periodic] = wrap(self.pos[:, periodic], params['LBOX'][periodic])

@@ -22,8 +22,6 @@ import numpy as np
 from pathlib import Path
 from textwrap import dedent
 
-from stepsic.units import UNIT_V
-
 import logging
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -138,8 +136,8 @@ class CosmoParameters:
         self.P['OMEGA_K'] = 1.0 - self.P['OMEGA_M'] - self.P['OMEGA_L']
 
         text = dedent(f'''
-        Cosmological Parameters:
-        ------------------------
+        Cosmological Parameters
+        -----------------------
         H0:                {self.P['H0']:.3f} km s^-1 Mpc^-1
         Omega_m:           {self.P['OMEGA_M']:.6f}
         Omega_m h^2:       {self.P['OMMH2']:.6f}
@@ -150,7 +148,7 @@ class CosmoParameters:
         Omega_b h^2:       {self.P['OMBH2']:.6f}
         n_s:               {self.P['NS']:.6f}
         A_s:               {self.P['AS']:.6e}
-        Sigma8:            {self.P['SIGMA8']:.3f}
+        sigma_8:           {self.P['SIGMA8']:.3f}
         Omega_nu:          {self.P['OMEGA_NU']:.6f}
         M_nu:              {self.P['MNU']:.3f} eV
         N_nu:              {self.P['NNU']:.3f}
@@ -174,7 +172,7 @@ class CosmoParameters:
 
         self._check_scalar('NMESH', dtype=int)
         self._check_array_or_scalar('LBOX', length=3)
-        self._check_array_or_scalar('PERIODIC', length=3, dtype=int)
+        self._check_array_or_scalar('PERIODIC', length=3, dtype=bool)
         self._check_array_or_scalar('COI', length=3)
         self._check_scalar('LPTORDER', dtype=int)
 
